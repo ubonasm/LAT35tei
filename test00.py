@@ -255,7 +255,7 @@ def create_tree_data(tags, data, selected_tag_type='すべて'):
             
         tag_info = st.session_state.tag_definitions[tag_type]
         
-        # タグタイプのノード（すべての場合のみ追加）
+        # タグタイプのノード
         tag_type_node = {
             'name': f"{tag_info['name']} <{tag_type}>",
             'children': []
@@ -311,14 +311,9 @@ def create_tree_data(tags, data, selected_tag_type='すべて'):
             # タグ値ノードをタグタイプノードに追加
             tag_type_node['children'].append(tag_value_node)
         
-        # タグタイプノードをルートに追加（すべての場合）または直接子ノードとして追加（フィルタリング時）
-        if selected_tag_type == 'すべて':
-            if tag_type_node['children']:  # 子ノードがある場合のみ追加
-                tree_data['children'].append(tag_type_node)
-        else:
-            # フィルタリング時は、タグ値ノードを直接ルートの子として追加
-            for tag_value_node in tag_type_node['children']:
-                tree_data['children'].append(tag_value_node)
+        # タグタイプノードをルートに追加
+        if tag_type_node['children']:  # 子ノードがある場合のみ追加
+            tree_data['children'].append(tag_type_node)
     
     return tree_data
 
@@ -456,124 +451,6 @@ def plot_interactive_tree(tree_data):
     
     return fig
 
-# サンバースト図を作成する関数
-def create_sunburst_chart(tags, data):
-    # サンバースト図用のデータを準備
-    sunburst_data = []
-    
-    # すべての発言を追加
-    for utterance_id in tags.keys():
-        if utterance_id in data['発言番号'].astype(str).values:
-            row = data[data['発言番号'].astype(str) == utterance_id].iloc[0]
-            
-            # この発言のタグを取得
-            utterance_tags = tags.get(utterance_id, {})
-            
-            # タグがない場合は「タグなし」として追加
-            if not utterance_tags:
-                sunburst_data.append({
-                    'id': f"u{utterance_id}",
-                    'parent': "",
-                    'labels': f"#{utterance_id}: {row['発言者']}",
-                    'value': 1
-                })
-            
-            # タグごとに追加
-            for tag_type, tag_list in utterance_tags.items():
-                tag_name = st.session_state.tag_definitions[tag_type]['name']
-                
-                # タグタイプのエントリを追加
-                sunburst_data.append({
-                    'id': tag_type,
-                    'parent': "",
-                    'labels': f"{tag_name} <{tag_type}>",
-                    'value': 1
-                })
-                
-                # タグごとに追加
-                for i, tag in enumerate(tag_list):
-                    tag_value = tag['value']
-                    tag_id = f"{tag_type}_{tag_value.replace(' ', '_')}"
-                    
-                    # タグ値のエントリを追加
-                    sunburst_data.append({
-                        'id': tag_id,
-                        'parent': tag_type,
-                        'labels': tag_value,
-                        'value': 1
-                    })
-                    
-                    # 発言のエントリを追加
-                    sunburst_data.append({
-                        'id': f"{tag_id}_u{utterance_id}",
-                        'parent': tag_id,
-                        'labels': f"#{utterance_id}: {row['発言者']}",
-                        'value': 1
-                    })
-    
-    # DataFrameに変換
-    if sunburst_data:
-        df_sunburst = pd.DataFrame(sunburst_data)
-        
-        # サンバースト図を作成
-        fig = go.Figure(go.Sunburst(
-            ids=df_sunburst['id'],
-            labels=df_sunburst['labels'],
-            parents=df_sunburst['parent'],
-            values=df_sunburst['value'],
-            branchvalues="total",
-            maxdepth=3
-        ))
-        
-        fig.update_layout(
-            title="タグ階層サンバースト図",
-            margin=dict(t=30, l=0, r=0, b=0),
-            height=600
-        )
-        
-        return fig
-    
-    return None
-
-# ヒートマップを作成する関数
-def create_tag_heatmap(tags, data):
-    # タグの共起関係を分析
-    tag_types = list(st.session_state.tag_definitions.keys())
-    co_occurrence = pd.DataFrame(0, index=tag_types, columns=tag_types)
-    
-    # 発言ごとにタグの共起をカウント
-    for utterance_id, utterance_tags in tags.items():
-        # この発言に付与されているタグタイプのリスト
-        used_tag_types = list(utterance_tags.keys())
-        
-        # タグタイプの組み合わせごとにカウント
-        for i, tag_type1 in enumerate(used_tag_types):
-            for tag_type2 in used_tag_types[i:]:  # 自己共起も含める
-                co_occurrence.loc[tag_type1, tag_type2] += 1
-                if tag_type1 != tag_type2:  # 対称行列にする
-                    co_occurrence.loc[tag_type2, tag_type1] += 1
-    
-    # タグ名に変換
-    co_occurrence.index = [st.session_state.tag_definitions[t]['name'] for t in co_occurrence.index]
-    co_occurrence.columns = [st.session_state.tag_definitions[t]['name'] for t in co_occurrence.columns]
-    
-    # ヒートマップを作成
-    fig = px.imshow(
-        co_occurrence,
-        labels=dict(x="タグタイプ", y="タグタイプ", color="共起回数"),
-        x=co_occurrence.columns,
-        y=co_occurrence.index,
-        color_continuous_scale="Viridis",
-        title="タグタイプの共起ヒートマップ"
-    )
-    
-    fig.update_layout(
-        height=600,
-        xaxis=dict(tickangle=45),
-    )
-    
-    return fig
-
 # サイドバー - ファイルアップロードと基本機能
 with st.sidebar:
     st.title("LAT35 on the web")
@@ -653,8 +530,8 @@ st.title("LAT35 on the web: mark-up system")
 
 # データが空でない場合のみ表示
 if not st.session_state.data.empty:
-    # タブを作成
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["発言一覧とタグ付け", "関係性の可視化", "タグ統計", "タグツリー", "タグ分析"])
+    # タブを作成（タグ分析タブを削除）
+    tab1, tab2, tab3, tab4 = st.tabs(["発言一覧とタグ付け", "関係性の可視化", "タグ統計", "タグツリー"])
     
     with tab1:
         # 発言一覧の表示
@@ -1035,86 +912,6 @@ if not st.session_state.data.empty:
                 st.dataframe(pd.DataFrame(filtered_data))
             else:
                 st.info(f"選択されたタグタイプ {st.session_state.tag_definitions[selected_tag_type]['name']} <{selected_tag_type}> は使用されていません。")
-    
-    with tab5:
-        st.subheader("タグ分析")
-        
-        # タグの分析方法を選択
-        analysis_type = st.radio(
-            "分析方法を選択",
-            ["サンバースト図", "タグ共起ヒートマップ", "タグ値の頻度分析"]
-        )
-        
-        if analysis_type == "サンバースト図":
-            st.markdown("""
-            <div class="viz-container">
-                <h4>タグ階層サンバースト図</h4>
-                <p>タグの階層構造を円形のサンバースト図で表示します。内側から外側に向かって、タグタイプ→タグ値→発言の階層で表示されます。</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # サンバースト図を作成
-            sunburst_fig = create_sunburst_chart(st.session_state.tags, st.session_state.data)
-            if sunburst_fig:
-                st.plotly_chart(sunburst_fig, use_container_width=True)
-            else:
-                st.info("タグが付与されていません。")
-        
-        elif analysis_type == "タグ共起ヒートマップ":
-            st.markdown("""
-            <div class="viz-container">
-                <h4>タグタイプの共起ヒートマップ</h4>
-                <p>同じ発言に付与されたタグタイプの組み合わせを可視化します。色が濃いほど、その組み合わせが多く出現しています。</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # ヒートマップを作成
-            heatmap_fig = create_tag_heatmap(st.session_state.tags, st.session_state.data)
-            st.plotly_chart(heatmap_fig, use_container_width=True)
-        
-        elif analysis_type == "タグ値の頻度分析":
-            st.markdown("""
-            <div class="viz-container">
-                <h4>タグ値の頻度分析</h4>
-                <p>各タグタイプごとに、タグ値の出現頻度を分析します。</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # タグタイプを選択
-            tag_type_for_freq = st.selectbox(
-                "分析するタグタイプを選択",
-                list(st.session_state.tag_definitions.keys()),
-                format_func=lambda x: f"{st.session_state.tag_definitions[x]['name']} <{x}>"
-            )
-            
-            # タグ値の頻度を集計
-            tag_values = []
-            for utterance_id, tags in st.session_state.tags.items():
-                if tag_type_for_freq in tags:
-                    for tag in tags[tag_type_for_freq]:
-                        tag_values.append(tag['value'])
-            
-            if tag_values:
-                # 頻度をカウント
-                value_counts = pd.Series(tag_values).value_counts().reset_index()
-                value_counts.columns = ['タグ値', '頻度']
-                
-                # 棒グラフで表示
-                fig = px.bar(
-                    value_counts,
-                    x='タグ値',
-                    y='頻度',
-                    title=f"{st.session_state.tag_definitions[tag_type_for_freq]['name']} <{tag_type_for_freq}> のタグ値頻度",
-                    color='タグ値',
-                    color_discrete_sequence=px.colors.qualitative.Pastel
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # データテーブルも表示
-                st.dataframe(value_counts)
-            else:
-                st.info(f"選択されたタグタイプ {st.session_state.tag_definitions[tag_type_for_freq]['name']} <{tag_type_for_freq}> は使用されていません。")
 else:
     st.info("CSVファイルをアップロードしてください。")
 
