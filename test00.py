@@ -559,6 +559,7 @@ if not st.session_state.data.empty:
             
             # グラフの描画
             plt.figure(figsize=(12, 8))
+            plt.rcParams['font.sans-serif'] = ['Hiragino Maru Gothic Pro', 'Yu Gothic', 'Meirio', 'Takao', 'IPAexGothic', 'IPAPGothic', 'VL PGothic', 'Noto Sans CJK JP']
             pos = nx.spring_layout(G, seed=42)
             
             # ノードの描画
