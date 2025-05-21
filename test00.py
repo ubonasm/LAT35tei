@@ -334,7 +334,7 @@ def plot_tree(tree_data):
 
 # サイドバー - ファイルアップロードと基本機能
 with st.sidebar:
-    st.title("授業記録マークアップシステム")
+    st.title("LAT35 on the web")
     
     # ファイルアップロード（CSVとJSON）
     st.header("1. データのアップロード")
@@ -407,7 +407,7 @@ with st.sidebar:
         st.markdown("</div>", unsafe_allow_html=True)
 
 # メイン画面
-st.title("授業記録マークアップシステム")
+st.title("LAT35 on the web: mark-up system")
 
 # データが空でない場合のみ表示
 if not st.session_state.data.empty:
