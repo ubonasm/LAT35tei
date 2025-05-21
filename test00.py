@@ -134,6 +134,110 @@ def get_csv_download_link(df, filename="marked_data.csv", text="CSVファイル�
     href = f'data:file/csv;base64,{b64}'
     return f'<a href="{href}" download="{filename}">{text}</a>'
 
+# ツリーデータをPlotlyで可視化する関数
+def plot_tree(tree_data):
+    # ツリーデータをフラット化
+    def flatten_tree(node, parent=None, level=0, result=None):
+        if result is None:
+            result = []
+        
+        # 現在のノードを追加
+        node_id = len(result)
+        result.append({
+            'id': node_id,
+            'name': node['name'],
+            'parent': parent,
+            'level': level
+        })
+        
+        # 子ノードを再帰的に処理
+        if 'children' in node:
+            for child in node['children']:
+                flatten_tree(child, node_id, level + 1, result)
+        
+        return result
+    
+    flat_data = flatten_tree(tree_data)
+    
+    # ノードの位置を計算
+    max_level = max(node['level'] for node in flat_data)
+    positions = {}
+    
+    for level in range(max_level + 1):
+        nodes_at_level = [node for node in flat_data if node['level'] == level]
+        for i, node in enumerate(nodes_at_level):
+            x = level
+            y = i - (len(nodes_at_level) - 1) / 2
+            positions[node['id']] = (x, y)
+    
+    # エッジのデータを作成
+    edges_x = []
+    edges_y = []
+    
+    for node in flat_data:
+        if node['parent'] is not None:
+            x0, y0 = positions[node['parent']]
+            x1, y1 = positions[node['id']]
+            edges_x.extend([x0, x1, None])
+            edges_y.extend([y0, y1, None])
+    
+    # エッジのトレース
+    edge_trace = go.Scatter(
+        x=edges_x, y=edges_y,
+        line=dict(width=1, color='#888'),
+        hoverinfo='none',
+        mode='lines'
+    )
+    
+    # ノードのデータを作成
+    node_x = []
+    node_y = []
+    node_text = []
+    node_colors = []
+    
+    for node in flat_data:
+        x, y = positions[node['id']]
+        node_x.append(x)
+        node_y.append(y)
+        node_text.append(node['name'])
+        
+        # レベルに応じた色を設定
+        if node['level'] == 0:
+            node_colors.append('#999')
+        elif node['level'] == 1:
+            node_colors.append('#69b3a2')
+        else:
+            node_colors.append('#3498db')
+    
+    # ノードのトレース
+    node_trace = go.Scatter(
+        x=node_x, y=node_y,
+        mode='markers+text',
+        hoverinfo='text',
+        text=node_text,
+        textposition='middle right',
+        marker=dict(
+            size=10,
+            color=node_colors,
+            line=dict(width=2, color='DarkSlateGrey')
+        )
+    )
+    
+    # レイアウト
+    layout = go.Layout(
+        showlegend=False,
+        hovermode='closest',
+        margin=dict(b=20, l=5, r=5, t=40),
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        height=800,
+        title='タグツリー構造'
+    )
+    
+    # 図を作成
+    fig = go.Figure(data=[edge_trace, node_trace], layout=layout)
+    return fig
+
 # サイドバー - ファイルアップロードと基本機能
 with st.sidebar:
     st.title("授業研究TEIマークアップシステム")
@@ -556,79 +660,12 @@ if not st.session_state.data.empty:
             if tag_type_node['children']:
                 tree_data['children'].append(tag_type_node)
         
-        # ツリーデータをJSONに変換
-        tree_json = json.dumps(tree_data)
-        
-        # D3.jsを使ったツリー図の表示
-        st.markdown("""
-        <div id="tree-container" style="width: 100%; height: 800px;"></div>
-        
-        <script src="https://d3js.org/d3.v7.min.js"></script>
-        <script>
-        // ツリーデータ
-        const treeData = %s;
-        
-        // D3.jsでツリー図を描画
-        document.addEventListener('DOMContentLoaded', function() {
-            const width = document.getElementById('tree-container').offsetWidth;
-            const height = 800;
-            const margin = {top: 20, right: 90, bottom: 30, left: 90};
-            
-            // SVG要素を作成
-            const svg = d3.select('#tree-container')
-                .append('svg')
-                .attr('width', width)
-                .attr('height', height)
-                .append('g')
-                .attr('transform', `translate(${margin.left},${margin.top})`);
-            
-            // ツリーレイアウトを作成
-            const treemap = d3.tree().size([height - margin.top - margin.bottom, width - margin.left - margin.right]);
-            
-            // ルートノードを作成
-            const root = d3.hierarchy(treeData);
-            
-            // ノードの位置を計算
-            const nodes = treemap(root);
-            
-            // リンク（枝）を描画
-            svg.selectAll('.link')
-                .data(nodes.descendants().slice(1))
-                .enter()
-                .append('path')
-                .attr('class', 'link')
-                .attr('d', d => {
-                    return `M${d.y},${d.x}C${(d.y + d.parent.y) / 2},${d.x} ${(d.y + d.parent.y) / 2},${d.parent.x} ${d.parent.y},${d.parent.x}`;
-                })
-                .style('fill', 'none')
-                .style('stroke', '#ccc')
-                .style('stroke-width', '2px');
-            
-            // ノードを描画
-            const node = svg.selectAll('.node')
-                .data(nodes.descendants())
-                .enter()
-                .append('g')
-                .attr('class', d => `node ${d.children ? 'node--internal' : 'node--leaf'}`)
-                .attr('transform', d => `translate(${d.y},${d.x})`);
-            
-            // ノードの円を描画
-            node.append('circle')
-                .attr('r', 5)
-                .style('fill', d => d.depth === 0 ? '#999' : d.depth === 1 ? '#69b3a2' : '#3498db')
-                .style('stroke', 'white')
-                .style('stroke-width', '2px');
-            
-            // ノードのテキストを描画
-            node.append('text')
-                .attr('dy', '.35em')
-                .attr('x', d => d.children ? -13 : 13)
-                .style('text-anchor', d => d.children ? 'end' : 'start')
-                .text(d => d.data.name)
-                .style('font-size', '12px');
-        });
-        </script>
-        """ % tree_json, unsafe_allow_html=True)
+        # Plotlyを使用してツリー図を描画
+        if tree_data['children']:
+            fig = plot_tree(tree_data)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("タグが付与されていません。")
         
         # フィルタリングオプション
         st.subheader("タグフィルタリング")
