@@ -81,6 +81,48 @@ st.markdown("""
         margin: 15px 0;
         background-color: #f9f9f9;
     }
+    
+    .marked-utterance {
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        padding: 10px;
+        margin: 10px 0;
+        background-color: #ffffff;
+    }
+    
+    .utterance-header {
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    
+    .utterance-content {
+        line-height: 1.6;
+    }
+    
+    .tag-marker {
+        padding: 2px 0;
+        border-radius: 3px;
+    }
+    
+    .tag-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin: 10px 0;
+    }
+    
+    .legend-item {
+        display: flex;
+        align-items: center;
+        margin-right: 15px;
+    }
+    
+    .legend-color {
+        width: 20px;
+        height: 20px;
+        margin-right: 5px;
+        border-radius: 3px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -451,6 +493,51 @@ def plot_interactive_tree(tree_data):
     
     return fig
 
+# マーカー付きテキストを生成する関数
+def create_marked_text(text, tags):
+    if not tags:
+        return text
+    
+    # テキスト選択タグを抽出
+    text_tags = []
+    for tag_type, tag_list in tags.items():
+        for tag in tag_list:
+            if 'start' in tag and 'end' in tag:
+                text_tags.append({
+                    'type': tag_type,
+                    'value': tag['value'],
+                    'start': tag['start'],
+                    'end': tag['end'],
+                    'color': st.session_state.tag_definitions[tag_type]['color']
+                })
+    
+    if not text_tags:
+        return text
+    
+    # タグを開始位置でソート
+    text_tags.sort(key=lambda x: x['start'])
+    
+    # テキストを分割してマーカーを適用
+    result = []
+    last_pos = 0
+    
+    for tag in text_tags:
+        # タグの前のテキストを追加
+        if tag['start'] > last_pos:
+            result.append(text[last_pos:tag['start']])
+        
+        # マーカー付きのテキストを追加
+        marked_text = text[tag['start']:tag['end']]
+        result.append(f'<span style="background-color: {tag["color"]};" title="{tag["type"]}: {tag["value"]}" class="tag-marker">{marked_text}</span>')
+        
+        last_pos = tag['end']
+    
+    # 残りのテキストを追加
+    if last_pos < len(text):
+        result.append(text[last_pos:])
+    
+    return ''.join(result)
+
 # サイドバー - ファイルアップロードと基本機能
 with st.sidebar:
     st.title("LAT35 on the web")
@@ -530,8 +617,8 @@ st.title("LAT35 on the web: mark-up system")
 
 # データが空でない場合のみ表示
 if not st.session_state.data.empty:
-    # タブを作成（タグ分析タブを削除）
-    tab1, tab2, tab3, tab4 = st.tabs(["発言一覧とタグ付け", "関係性の可視化", "タグ統計", "タグツリー"])
+    # タブを作成（発言マーカー表示タブを追加）
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["発言一覧とタグ付け", "関係性の可視化", "タグ統計", "タグツリー", "発言マーカー表示"])
     
     with tab1:
         # 発言一覧の表示
@@ -678,7 +765,6 @@ if not st.session_state.data.empty:
             
             # グラフの描画
             plt.figure(figsize=(12, 8))
-            plt.rcParams['font.sans-serif'] = ['Hiragino Maru Gothic Pro', 'Yu Gothic', 'Meirio', 'Takao', 'IPAexGothic', 'IPAPGothic', 'VL PGothic', 'Noto Sans CJK JP']
             pos = nx.spring_layout(G, seed=42)
             
             # ノードの描画
@@ -912,6 +998,107 @@ if not st.session_state.data.empty:
                 st.dataframe(pd.DataFrame(filtered_data))
             else:
                 st.info(f"選択されたタグタイプ {st.session_state.tag_definitions[selected_tag_type]['name']} <{selected_tag_type}> は使用されていません。")
+    
+    with tab5:
+        st.subheader("発言マーカー表示")
+        
+        # タグの凡例を表示
+        st.markdown("<div class='tag-legend'>", unsafe_allow_html=True)
+        for tag_id, tag_info in st.session_state.tag_definitions.items():
+            st.markdown(f"""
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: {tag_info['color']};"></div>
+                <div>{tag_info['name']} &lt;{tag_id}&gt;</div>
+            </div>
+            """, unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        # フィルタリングオプション
+        filter_options = st.multiselect(
+            "表示するタグタイプを選択（未選択の場合はすべて表示）",
+            options=list(st.session_state.tag_definitions.keys()),
+            format_func=lambda x: f"{st.session_state.tag_definitions[x]['name']} <{x}>"
+        )
+        
+        # 発言者でフィルタリング
+        speakers = st.session_state.data['発言者'].unique().tolist()
+        selected_speakers = st.multiselect(
+            "表示する発言者を選択（未選択の場合はすべて表示）",
+            options=speakers
+        )
+        
+        # 発言番号の範囲でフィルタリング
+        min_utterance = int(st.session_state.data['発言番号'].min())
+        max_utterance = int(st.session_state.data['発言番号'].max())
+        
+        utterance_range = st.slider(
+            "表示する発言番号の範囲",
+            min_value=min_utterance,
+            max_value=max_utterance,
+            value=(min_utterance, max_utterance)
+        )
+        
+        # フィルタリングされた発言を表示
+        filtered_df = st.session_state.data
+        
+        # 発言者でフィルタリング
+        if selected_speakers:
+            filtered_df = filtered_df[filtered_df['発言者'].isin(selected_speakers)]
+        
+        # 発言番号の範囲でフィルタリング
+        filtered_df = filtered_df[(filtered_df['発言番号'] >= utterance_range[0]) & (filtered_df['発言番号'] <= utterance_range[1])]
+        
+        # 発言一覧を表示
+        st.subheader("マーカー付き発言一覧")
+        
+        if filtered_df.empty:
+            st.info("条件に一致する発言がありません。")
+        else:
+            # 発言ごとにマーカー付きテキストを表示
+            for _, row in filtered_df.iterrows():
+                utterance_id = str(row['発言番号'])
+                
+                # この発言のタグを取得
+                utterance_tags = st.session_state.tags.get(utterance_id, {})
+                
+                # タグタイプでフィルタリング
+                if filter_options:
+                    filtered_tags = {tag_type: tags for tag_type, tags in utterance_tags.items() if tag_type in filter_options}
+                else:
+                    filtered_tags = utterance_tags
+                
+                # マーカー付きテキストを生成
+                marked_text = create_marked_text(row['発言内容'], filtered_tags)
+                
+                # 発言を表示
+                st.markdown(f"""
+                <div class="marked-utterance">
+                    <div class="utterance-header">
+                        #{row['発言番号']}: {row['発言者']}
+                    </div>
+                    <div class="utterance-content">
+                        {marked_text}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # 非テキスト選択タグ（関係タグなど）を表示
+                non_text_tags = []
+                for tag_type, tags in filtered_tags.items():
+                    for tag in tags:
+                        if 'start' not in tag or 'end' not in tag:
+                            tag_info = f"<{tag_type}> {st.session_state.tag_definitions[tag_type]['name']}: {tag['value']}"
+                            if 'target' in tag:
+                                target_row = st.session_state.data[st.session_state.data['発言番号'].astype(str) == tag['target']].iloc[0]
+                                tag_info += f" (関連発言: #{tag['target']}: {target_row['発言者']})"
+                            non_text_tags.append(tag_info)
+                
+                if non_text_tags:
+                    st.markdown(f"""
+                    <div style="margin-left: 20px; margin-bottom: 10px; font-size: 0.9em; color: #666;">
+                        <strong>その他のタグ:</strong> {' | '.join(non_text_tags)}
+                    </div>
+                    """, unsafe_allow_html=True)
 else:
     st.info("CSVファイルをアップロードしてください。")
 
