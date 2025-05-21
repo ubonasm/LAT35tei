@@ -50,6 +50,28 @@ st.markdown("""
         background-color: #f9f9f9;
         border-radius: 3px;
     }
+    
+    .download-button {
+        background-color: #4CAF50;
+        color: white;
+        padding: 10px 15px;
+        text-align: center;
+        text-decoration: none;
+        display: inline-block;
+        font-size: 16px;
+        margin: 10px 0;
+        cursor: pointer;
+        border-radius: 5px;
+        border: none;
+    }
+    
+    .download-section {
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-radius: 10px;
+        margin: 20px 0;
+        border: 1px solid #ddd;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -63,15 +85,15 @@ if 'current_utterance' not in st.session_state:
 if 'tag_definitions' not in st.session_state:
     # タグの定義と説明
     st.session_state.tag_definitions = {
-        'code': {'name': 'コード・概念', 'color': '#FFD700', 'description': '発言に対する概念やコードを付与します　例）気づき、止めない理由、算数的誤概念'},
-        'relation': {'name': '関係性', 'color': '#FF6347', 'description': '他の発言との関係を示します　例）反論、付け足し、展開'},
-        'act': {'name': '発話行為', 'color': '#98FB98', 'description': '発話行為の種類を分類します　例）問いかけ、説明、指示'},
-        'who': {'name': '発言者属性', 'color': '#87CEFA', 'description': '発言者の役割や属性を記録します　例）教師、児童'},
+        'code': {'name': 'コード・概念', 'color': '#FFD700', 'description': '発言に対する概念やコードを付与します'},
+        'relation': {'name': '関係性', 'color': '#FF6347', 'description': '他の発言との関係を示します'},
+        'act': {'name': '発話行為', 'color': '#98FB98', 'description': '発話行為の種類を分類します'},
+        'who': {'name': '発言者属性', 'color': '#87CEFA', 'description': '発言者の役割や属性を記録します'},
         'time': {'name': '時間情報', 'color': '#DDA0DD', 'description': 'タイムスタンプや経過時間を記録します'},
-        'note': {'name': '注記', 'color': '#F0E68C', 'description': '分析者によるメモや注記を追加します'},
-        'phase': {'name': '授業フェーズ', 'color': '#FFA07A', 'description': '授業のフェーズや段階を示します　例）導入、第2分節、グループ活動'},
-        'meta': {'name': 'メタ情報', 'color': '#B0C4DE', 'description': '発言単位のメタ情報を記録します　例）興奮、大声、泣きながら'},
-        # 'group': {'name': 'グループ', 'color': '#D8BFD8', 'description': '発言のまとまり、活動、分節、話題を示します　例）'}
+        'note': {'name': '注記', 'color': '#F0E68C', 'description': '分析者による注記を追加します'},
+        'phase': {'name': '授業フェーズ', 'color': '#FFA07A', 'description': '授業のフェーズや段階を示します'},
+        'meta': {'name': 'メタ情報', 'color': '#B0C4DE', 'description': '発言単位のメタ情報を記録します'},
+        'group': {'name': 'グループ', 'color': '#D8BFD8', 'description': '発言のまとまり、活動、分節、話題を示します'}
     }
 
 # タグ付けされたテキストをXML形式に変換する関数
@@ -132,7 +154,79 @@ def get_csv_download_link(df, filename="marked_data.csv", text="CSVファイル�
     csv = df.to_csv(index=False, encoding='utf-8-sig')
     b64 = base64.b64encode(csv.encode('utf-8-sig')).decode()
     href = f'data:file/csv;base64,{b64}'
-    return f'<a href="{href}" download="{filename}">{text}</a>'
+    return f'<a href="{href}" download="{filename}" class="download-button">{text}</a>'
+
+# JSONファイルをダウンロードするための関数
+def get_json_download_link(data, filename="tags_data.json", text="タグデータ（JSON）をダウンロード"):
+    json_str = json.dumps(data, ensure_ascii=False, indent=2)
+    b64 = base64.b64encode(json_str.encode('utf-8')).decode()
+    href = f'data:file/json;base64,{b64}'
+    return f'<a href="{href}" download="{filename}" class="download-button">{text}</a>'
+
+# マークアップされたCSVファイルを作成する関数
+def create_marked_csv(df, tags):
+    # 新しいデータフレームを作成
+    marked_df = df.copy()
+    
+    # マークアップされたテキストのカラムを追加
+    marked_texts = []
+    
+    for _, row in df.iterrows():
+        utterance_id = str(row['発言番号'])
+        text = row['発言内容']
+        
+        # この発言のタグを取得
+        utterance_tags = tags.get(utterance_id, {})
+        
+        # マークアップされたテキストを作成
+        marked_text = text
+        
+        # テキスト選択タグを適用（後ろから処理して位置がずれないようにする）
+        text_selections = []
+        
+        for tag_type, tag_list in utterance_tags.items():
+            for tag in tag_list:
+                if 'start' in tag and 'end' in tag:
+                    text_selections.append((tag_type, tag['value'], tag['start'], tag['end']))
+        
+        # 位置でソート（後ろから処理するために逆順）
+        text_selections.sort(key=lambda x: x[3], reverse=True)
+        
+        # テキストにタグを挿入
+        for tag_type, value, start, end in text_selections:
+            tag_name = st.session_state.tag_definitions[tag_type]['name']
+            marked_text = marked_text[:end] + f"</{tag_type}>" + marked_text[end:]
+            marked_text = marked_text[:start] + f"<{tag_type} value=\"{value}\">" + marked_text[start:]
+        
+        marked_texts.append(marked_text)
+    
+    marked_df['マークアップテキスト'] = marked_texts
+    
+    # 関係タグなど、テキスト選択以外のタグ情報を別カラムに追加
+    for tag_type in set(tag for tags_dict in tags.values() for tag in tags_dict.keys()):
+        tag_values = []
+        
+        for _, row in df.iterrows():
+            utterance_id = str(row['発言番号'])
+            utterance_tags = tags.get(utterance_id, {})
+            
+            if tag_type in utterance_tags:
+                # テキスト選択以外のタグを抽出
+                non_text_tags = [tag for tag in utterance_tags[tag_type] if 'start' not in tag or 'end' not in tag]
+                
+                if non_text_tags:
+                    tag_values.append('; '.join(f"{tag.get('value', '')}" + 
+                                              (f" (関連発言: #{tag['target']})" if 'target' in tag else "") 
+                                              for tag in non_text_tags))
+                else:
+                    tag_values.append('')
+            else:
+                tag_values.append('')
+        
+        if any(tag_values):  # 少なくとも1つの値がある場合のみカラムを追加
+            marked_df[f'{st.session_state.tag_definitions[tag_type]["name"]}'] = tag_values
+    
+    return marked_df
 
 # ツリーデータをPlotlyで可視化する関数
 def plot_tree(tree_data):
@@ -242,55 +336,41 @@ def plot_tree(tree_data):
 with st.sidebar:
     st.title("授業研究TEIマークアップシステム")
     
-    # ファイルアップロード
-    uploaded_file = st.file_uploader("CSVファイルをアップロード", type=["csv"])
+    # ファイルアップロード（CSVとJSON）
+    st.header("1. データのアップロード")
     
-    if uploaded_file is not None:
+    # CSVファイルのアップロード
+    uploaded_csv = st.file_uploader("授業記録CSVファイルをアップロード", type=["csv"])
+    
+    if uploaded_csv is not None:
         try:
-            df = pd.read_csv(uploaded_file, encoding='utf-8')
+            df = pd.read_csv(uploaded_csv, encoding='utf-8')
             # 必要なカラムがあるか確認
             required_columns = ['発言番号', '発言者', '発言内容']
             if all(col in df.columns for col in required_columns):
                 st.session_state.data = df
-                # タグ情報の初期化
-                st.session_state.tags = {str(row['発言番号']): {} for _, row in df.iterrows()}
-                st.success("ファイルが正常に読み込まれました。")
+                # タグ情報の初期化（既存のタグ情報を保持）
+                if not st.session_state.tags:
+                    st.session_state.tags = {str(row['発言番号']): {} for _, row in df.iterrows()}
+                st.success("CSVファイルが正常に読み込まれました。")
             else:
                 st.error("CSVファイルには '発言番号', '発言者', '発言内容' の列が必要です。")
         except Exception as e:
             st.error(f"ファイルの読み込み中にエラーが発生しました: {e}")
     
-    # 新規データ作成ボタン
-    if st.button("新規データ作成"):
-        st.session_state.data = pd.DataFrame(columns=['発言番号', '発言者', '発言内容'])
-        st.session_state.tags = {}
-        st.session_state.current_utterance = None
+    # JSONファイルのアップロード（タグ情報）
+    uploaded_json = st.file_uploader("タグデータJSONファイルをアップロード（オプション）", type=["json"])
     
-    # 発言の追加フォーム
-    with st.expander("発言の追加", expanded=False):
-        utterance_num = st.number_input("発言番号", min_value=1, step=1)
-        speaker = st.text_input("発言者")
-        content = st.text_area("発言内容")
-        
-        if st.button("発言を追加"):
-            new_row = pd.DataFrame({
-                '発言番号': [utterance_num],
-                '発言者': [speaker],
-                '発言内容': [content]
-            })
-            
-            # 既存の発言番号かどうかを確認
-            if str(utterance_num) in st.session_state.tags:
-                # 既存の発言を更新
-                st.session_state.data.loc[st.session_state.data['発言番号'] == utterance_num, ['発言者', '発言内容']] = [speaker, content]
-            else:
-                # 新しい発言を追加
-                st.session_state.data = pd.concat([st.session_state.data, new_row], ignore_index=True)
-                st.session_state.tags[str(utterance_num)] = {}
-            
-            st.success(f"発言 #{utterance_num} が追加されました。")
+    if uploaded_json is not None:
+        try:
+            tags_data = json.load(uploaded_json)
+            st.session_state.tags = tags_data
+            st.success("タグデータが正常に読み込まれました。")
+        except Exception as e:
+            st.error(f"JSONファイルの読み込み中にエラーが発生しました: {e}")
     
     # タグの説明
+    st.header("2. タグの説明")
     with st.expander("タグの説明", expanded=False):
         for tag_id, tag_info in st.session_state.tag_definitions.items():
             st.markdown(f"""
@@ -300,21 +380,31 @@ with st.sidebar:
             </div>
             """, unsafe_allow_html=True)
     
-    # 保存ボタン
+    # データ保存セクション
+    st.header("3. データの保存")
     if not st.session_state.data.empty:
-        # タグ情報をXML形式で保存
-        xml_column = []
-        for _, row in st.session_state.data.iterrows():
-            utterance_id = str(row['発言番号'])
-            tags = st.session_state.tags.get(utterance_id, {})
-            xml = text_to_xml(row['発言内容'], tags)
-            xml_column.append(xml)
+        st.markdown("""
+        <div class="download-section">
+            <h4>作業データの保存</h4>
+            <p>現在の作業状態を保存して、後で続きから作業できます。</p>
+        """, unsafe_allow_html=True)
         
-        # XMLカラムを追加したデータフレームを作成
-        export_df = st.session_state.data.copy()
-        export_df['マークアップ'] = xml_column
+        # JSONファイルのダウンロードリンク
+        st.markdown(get_json_download_link(
+            st.session_state.tags, 
+            filename="tags_data.json", 
+            text="タグデータを保存 (JSON)"
+        ), unsafe_allow_html=True)
         
-        st.markdown(get_csv_download_link(export_df), unsafe_allow_html=True)
+        # マークアップされたCSVファイルのダウンロードリンク
+        marked_df = create_marked_csv(st.session_state.data, st.session_state.tags)
+        st.markdown(get_csv_download_link(
+            marked_df, 
+            filename="marked_data.csv", 
+            text="マークアップ済みデータを保存 (CSV)"
+        ), unsafe_allow_html=True)
+        
+        st.markdown("</div>", unsafe_allow_html=True)
 
 # メイン画面
 st.title("授業記録マークアップシステム")
@@ -573,46 +663,72 @@ if not st.session_state.data.empty:
             st.subheader("発言番号ごとのタグ分布")
             
             # 発言番号の範囲
-            utterance_ids = sorted([int(id) for id in st.session_state.tags.keys()])
-            if utterance_ids:
-                min_id = min(utterance_ids)
-                max_id = max(utterance_ids)
-                
-                # タグの分布データを作成
-                distribution_data = []
-                
-                for tag_type, utterances in tag_by_utterance.items():
-                    for utterance_id, count in utterances:
-                        distribution_data.append({
-                            '発言番号': utterance_id,
-                            'タグタイプ': st.session_state.tag_definitions[tag_type]['name'],
-                            'タグ数': count
-                        })
-                
-                if distribution_data:
-                    df_distribution = pd.DataFrame(distribution_data)
+            max_utterance_id = int(st.session_state.data['発言番号'].max())
+            
+            # タグの分布データを作成
+            distribution_data = []
+            
+            for tag_type, utterances in tag_by_utterance.items():
+                # すべての発言番号に対してデータを作成（タグがない場合は0）
+                for utterance_id in range(1, max_utterance_id + 1):
+                    # この発言番号とタグタイプの組み合わせのタグ数を検索
+                    count = 0
+                    for u_id, u_count in utterances:
+                        if u_id == utterance_id:
+                            count = u_count
+                            break
                     
-                    # ヒートマップで表示
-                    fig = px.density_heatmap(
-                        df_distribution,
-                        x='発言番号',
-                        y='タグタイプ',
-                        z='タグ数',
-                        title='発言番号ごとのタグ分布',
-                        color_continuous_scale='Viridis'
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    # 折れ線グラフでも表示
-                    fig = px.line(
-                        df_distribution,
-                        x='発言番号',
-                        y='タグ数',
-                        color='タグタイプ',
-                        title='発言番号ごとのタグ数の推移',
-                        markers=True
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
+                    distribution_data.append({
+                        '発言番号': utterance_id,
+                        'タグタイプ': st.session_state.tag_definitions[tag_type]['name'],
+                        'タグ数': count
+                    })
+            
+            if distribution_data:
+                df_distribution = pd.DataFrame(distribution_data)
+                
+                # ヒートマップで表示
+                fig = px.density_heatmap(
+                    df_distribution,
+                    x='発言番号',
+                    y='タグタイプ',
+                    z='タグ数',
+                    title='発言番号ごとのタグ分布',
+                    color_continuous_scale='Viridis'
+                )
+                
+                # X軸のティックを設定（全発言数を表示、ただし見やすさのために間引く）
+                tick_values = list(range(1, max_utterance_id + 1, max(1, max_utterance_id // 20)))
+                if max_utterance_id not in tick_values:
+                    tick_values.append(max_utterance_id)
+                
+                fig.update_xaxes(
+                    tickmode='array',
+                    tickvals=tick_values,
+                    ticktext=[str(i) for i in tick_values]
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # 折れ線グラフでも表示
+                fig = px.line(
+                    df_distribution,
+                    x='発言番号',
+                    y='タグ数',
+                    color='タグタイプ',
+                    title='発言番号ごとのタグ数の推移',
+                    markers=True
+                )
+                
+                # X軸のティックを設定（全発言数を表示、ただし見やすさのために間引く）
+                fig.update_xaxes(
+                    tickmode='array',
+                    tickvals=tick_values,
+                    ticktext=[str(i) for i in tick_values],
+                    range=[0.5, max_utterance_id + 0.5]  # 軸の範囲を調整
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("タグが付与されていません。")
     
@@ -704,7 +820,7 @@ if not st.session_state.data.empty:
             else:
                 st.info(f"選択されたタグタイプ {st.session_state.tag_definitions[selected_tag_type]['name']} <{selected_tag_type}> は使用されていません。")
 else:
-    st.info("CSVファイルをアップロードするか、新規データを作成してください。")
+    st.info("CSVファイルをアップロードしてください。")
 
 # フッター
 st.markdown("---")
