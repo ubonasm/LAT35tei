@@ -824,4 +824,4 @@ else:
 
 # フッター
 st.markdown("---")
-st.markdown("授業研究TEIマークアップシステム - Text Encoding Initiative (TEI) inspired markup system for classroom research")
+st.markdown("LAT35 on the web: mark-up system - Text Encoding Initiative (TEI) inspired markup system for classroom research")
