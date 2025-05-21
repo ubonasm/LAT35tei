@@ -13,7 +13,7 @@ import json
 from typing import Dict, List, Tuple, Any, Optional
 
 # アプリケーションのタイトルとスタイル設定
-st.set_page_config(page_title="授業研究TEIマークアップシステム", layout="wide")
+st.set_page_config(page_title="授業記録マークアップシステム", layout="wide")
 
 # CSSスタイルの追加
 st.markdown("""
@@ -334,7 +334,7 @@ def plot_tree(tree_data):
 
 # サイドバー - ファイルアップロードと基本機能
 with st.sidebar:
-    st.title("授業研究TEIマークアップシステム")
+    st.title("授業記録マークアップシステム")
     
     # ファイルアップロード（CSVとJSON）
     st.header("1. データのアップロード")
