@@ -11,6 +11,7 @@ from collections import defaultdict
 import xml.etree.ElementTree as ET
 import json
 from typing import Dict, List, Tuple, Any, Optional
+import random
 
 # アプリケーションのタイトルとスタイル設定
 st.set_page_config(page_title="LAT35 on the web: mark-up system", layout="wide")
@@ -71,6 +72,14 @@ st.markdown("""
         border-radius: 10px;
         margin: 20px 0;
         border: 1px solid #ddd;
+    }
+    
+    .viz-container {
+        border: 1px solid #ddd;
+        border-radius: 10px;
+        padding: 15px;
+        margin: 15px 0;
+        background-color: #f9f9f9;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -228,91 +237,170 @@ def create_marked_csv(df, tags):
     
     return marked_df
 
-# ツリーデータをPlotlyで可視化する関数
-def plot_tree(tree_data):
-    # ツリーデータをフラット化
-    def flatten_tree(node, parent=None, level=0, result=None):
-        if result is None:
-            result = []
+# ツリーデータを作成する関数（フィルタリングとツリー構造の順序変更に対応）
+def create_tree_data(tags, data, selected_tag_type='すべて'):
+    # ルートノードを作成
+    tree_data = {
+        'name': 'すべてのタグ' if selected_tag_type == 'すべて' else f"{st.session_state.tag_definitions[selected_tag_type]['name']} <{selected_tag_type}>",
+        'children': []
+    }
+    
+    # 処理するタグタイプを決定
+    tag_types = [selected_tag_type] if selected_tag_type != 'すべて' else st.session_state.tag_definitions.keys()
+    
+    # タグタイプごとのノードを作成
+    for tag_type in tag_types:
+        if tag_type not in st.session_state.tag_definitions:
+            continue
+            
+        tag_info = st.session_state.tag_definitions[tag_type]
         
-        # 現在のノードを追加
-        node_id = len(result)
-        result.append({
+        # タグタイプのノード（すべての場合のみ追加）
+        tag_type_node = {
+            'name': f"{tag_info['name']} <{tag_type}>",
+            'children': []
+        }
+        
+        # タグ値ごとにグループ化
+        tag_values = defaultdict(list)
+        
+        # このタグタイプが使われている発言を集める
+        for utterance_id, utterance_tags in tags.items():
+            if tag_type in utterance_tags:
+                utterance_row = data[data['発言番号'].astype(str) == utterance_id].iloc[0]
+                
+                # この発言のこのタグタイプのタグを追加
+                for tag in utterance_tags[tag_type]:
+                    tag_value = tag['value']
+                    
+                    # テキスト選択がある場合
+                    if 'start' in tag and 'end' in tag:
+                        selected_text = utterance_row['発言内容'][tag['start']:tag['end']]
+                        display_value = f"{tag_value} (\"{selected_text}\")"
+                    else:
+                        display_value = tag_value
+                    
+                    # 関係タグの場合
+                    if 'target' in tag:
+                        target_id = tag['target']
+                        target_row = data[data['発言番号'].astype(str) == target_id].iloc[0]
+                        display_value += f" (関連発言: #{target_id})"
+                    
+                    # タグ値ごとに発言をグループ化
+                    tag_values[display_value].append({
+                        'utterance_id': utterance_id,
+                        'speaker': utterance_row['発言者'],
+                        'content': utterance_row['発言内容']
+                    })
+        
+        # タグ値ごとのノードを作成
+        for tag_value, utterances in tag_values.items():
+            tag_value_node = {
+                'name': tag_value,
+                'children': []
+            }
+            
+            # 発言ノードを追加
+            for utterance in utterances:
+                utterance_node = {
+                    'name': f"#{utterance['utterance_id']}: {utterance['speaker']}",
+                    'tooltip': utterance['content'][:50] + ('...' if len(utterance['content']) > 50 else '')
+                }
+                tag_value_node['children'].append(utterance_node)
+            
+            # タグ値ノードをタグタイプノードに追加
+            tag_type_node['children'].append(tag_value_node)
+        
+        # タグタイプノードをルートに追加（すべての場合）または直接子ノードとして追加（フィルタリング時）
+        if selected_tag_type == 'すべて':
+            if tag_type_node['children']:  # 子ノードがある場合のみ追加
+                tree_data['children'].append(tag_type_node)
+        else:
+            # フィルタリング時は、タグ値ノードを直接ルートの子として追加
+            for tag_value_node in tag_type_node['children']:
+                tree_data['children'].append(tag_value_node)
+    
+    return tree_data
+
+# インタラクティブなツリー図を描画する関数
+def plot_interactive_tree(tree_data):
+    # ノードとエッジのデータを準備
+    nodes = []
+    edges = []
+    
+    def process_node(node, parent_id=None, level=0, x_pos=0, y_pos=0):
+        node_id = len(nodes)
+        
+        # ノードの色を決定
+        if level == 0:
+            color = '#999'
+        elif level == 1:
+            color = '#69b3a2'
+        elif level == 2:
+            color = '#3498db'
+        else:
+            color = '#f39c12'
+        
+        # ノードを追加
+        nodes.append({
             'id': node_id,
-            'name': node['name'],
-            'parent': parent,
-            'level': level
+            'label': node['name'],
+            'level': level,
+            'color': color,
+            'x': x_pos,
+            'y': y_pos,
+            'tooltip': node.get('tooltip', '')
         })
         
-        # 子ノードを再帰的に処理
-        if 'children' in node:
-            for child in node['children']:
-                flatten_tree(child, node_id, level + 1, result)
+        # エッジを追加
+        if parent_id is not None:
+            edges.append({
+                'from': parent_id,
+                'to': node_id
+            })
         
-        return result
+        # 子ノードを処理
+        if 'children' in node:
+            child_count = len(node['children'])
+            for i, child in enumerate(node['children']):
+                # 子ノードの位置を計算（放射状に配置）
+                angle = 2 * 3.14159 * i / max(1, child_count)
+                radius = 5 * (level + 1)  # レベルに応じた半径
+                child_x = x_pos + radius * 1.5 * (0.5 - random.random())  # ランダム性を加える
+                child_y = y_pos + radius * 1.5 * (0.5 - random.random())
+                process_node(child, node_id, level + 1, child_x, child_y)
     
-    flat_data = flatten_tree(tree_data)
+    # ルートノードから処理開始
+    process_node(tree_data)
     
-    # ノードの位置を計算
-    max_level = max(node['level'] for node in flat_data)
-    positions = {}
-    
-    for level in range(max_level + 1):
-        nodes_at_level = [node for node in flat_data if node['level'] == level]
-        for i, node in enumerate(nodes_at_level):
-            x = level
-            y = i - (len(nodes_at_level) - 1) / 2
-            positions[node['id']] = (x, y)
-    
-    # エッジのデータを作成
-    edges_x = []
-    edges_y = []
-    
-    for node in flat_data:
-        if node['parent'] is not None:
-            x0, y0 = positions[node['parent']]
-            x1, y1 = positions[node['id']]
-            edges_x.extend([x0, x1, None])
-            edges_y.extend([y0, y1, None])
-    
-    # エッジのトレース
+    # Plotlyでネットワークグラフを作成
     edge_trace = go.Scatter(
-        x=edges_x, y=edges_y,
+        x=[],
+        y=[],
         line=dict(width=1, color='#888'),
         hoverinfo='none',
         mode='lines'
     )
     
-    # ノードのデータを作成
-    node_x = []
-    node_y = []
-    node_text = []
-    node_colors = []
+    # エッジの座標を追加
+    for edge in edges:
+        x0, y0 = nodes[edge['from']]['x'], nodes[edge['from']]['y']
+        x1, y1 = nodes[edge['to']]['x'], nodes[edge['to']]['y']
+        edge_trace['x'] += (x0, x1, None)
+        edge_trace['y'] += (y0, y1, None)
     
-    for node in flat_data:
-        x, y = positions[node['id']]
-        node_x.append(x)
-        node_y.append(y)
-        node_text.append(node['name'])
-        
-        # レベルに応じた色を設定
-        if node['level'] == 0:
-            node_colors.append('#999')
-        elif node['level'] == 1:
-            node_colors.append('#69b3a2')
-        else:
-            node_colors.append('#3498db')
-    
-    # ノードのトレース
+    # ノードのトレースを作成
     node_trace = go.Scatter(
-        x=node_x, y=node_y,
+        x=[node['x'] for node in nodes],
+        y=[node['y'] for node in nodes],
         mode='markers+text',
-        hoverinfo='text',
-        text=node_text,
+        text=[node['label'] for node in nodes],
         textposition='middle right',
+        hovertext=[node['tooltip'] if node['tooltip'] else node['label'] for node in nodes],
+        hoverinfo='text',
         marker=dict(
-            size=10,
-            color=node_colors,
+            size=[15 if node['level'] == 0 else 12 if node['level'] == 1 else 10 if node['level'] == 2 else 8 for node in nodes],
+            color=[node['color'] for node in nodes],
             line=dict(width=2, color='DarkSlateGrey')
         )
     )
@@ -325,11 +413,165 @@ def plot_tree(tree_data):
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         height=800,
-        title='タグツリー構造'
+        title='インタラクティブタグツリー（ドラッグで移動可能）',
+        dragmode='pan',  # パンモードを有効化
+        clickmode='event+select'  # クリックイベントを有効化
     )
     
     # 図を作成
     fig = go.Figure(data=[edge_trace, node_trace], layout=layout)
+    
+    # ドラッグモードを設定
+    fig.update_layout(
+        updatemenus=[
+            dict(
+                type="buttons",
+                direction="right",
+                buttons=[
+                    dict(
+                        args=[{"dragmode": "pan"}],
+                        label="パン",
+                        method="relayout"
+                    ),
+                    dict(
+                        args=[{"dragmode": "zoom"}],
+                        label="ズーム",
+                        method="relayout"
+                    ),
+                    dict(
+                        args=[{"dragmode": "select"}],
+                        label="選択",
+                        method="relayout"
+                    )
+                ],
+                pad={"r": 10, "t": 10},
+                showactive=True,
+                x=0.1,
+                xanchor="left",
+                y=1.1,
+                yanchor="top"
+            )
+        ]
+    )
+    
+    return fig
+
+# サンバースト図を作成する関数
+def create_sunburst_chart(tags, data):
+    # サンバースト図用のデータを準備
+    sunburst_data = []
+    
+    # すべての発言を追加
+    for utterance_id in tags.keys():
+        if utterance_id in data['発言番号'].astype(str).values:
+            row = data[data['発言番号'].astype(str) == utterance_id].iloc[0]
+            
+            # この発言のタグを取得
+            utterance_tags = tags.get(utterance_id, {})
+            
+            # タグがない場合は「タグなし」として追加
+            if not utterance_tags:
+                sunburst_data.append({
+                    'id': f"u{utterance_id}",
+                    'parent': "",
+                    'labels': f"#{utterance_id}: {row['発言者']}",
+                    'value': 1
+                })
+            
+            # タグごとに追加
+            for tag_type, tag_list in utterance_tags.items():
+                tag_name = st.session_state.tag_definitions[tag_type]['name']
+                
+                # タグタイプのエントリを追加
+                sunburst_data.append({
+                    'id': tag_type,
+                    'parent': "",
+                    'labels': f"{tag_name} <{tag_type}>",
+                    'value': 1
+                })
+                
+                # タグごとに追加
+                for i, tag in enumerate(tag_list):
+                    tag_value = tag['value']
+                    tag_id = f"{tag_type}_{tag_value.replace(' ', '_')}"
+                    
+                    # タグ値のエントリを追加
+                    sunburst_data.append({
+                        'id': tag_id,
+                        'parent': tag_type,
+                        'labels': tag_value,
+                        'value': 1
+                    })
+                    
+                    # 発言のエントリを追加
+                    sunburst_data.append({
+                        'id': f"{tag_id}_u{utterance_id}",
+                        'parent': tag_id,
+                        'labels': f"#{utterance_id}: {row['発言者']}",
+                        'value': 1
+                    })
+    
+    # DataFrameに変換
+    if sunburst_data:
+        df_sunburst = pd.DataFrame(sunburst_data)
+        
+        # サンバースト図を作成
+        fig = go.Figure(go.Sunburst(
+            ids=df_sunburst['id'],
+            labels=df_sunburst['labels'],
+            parents=df_sunburst['parent'],
+            values=df_sunburst['value'],
+            branchvalues="total",
+            maxdepth=3
+        ))
+        
+        fig.update_layout(
+            title="タグ階層サンバースト図",
+            margin=dict(t=30, l=0, r=0, b=0),
+            height=600
+        )
+        
+        return fig
+    
+    return None
+
+# ヒートマップを作成する関数
+def create_tag_heatmap(tags, data):
+    # タグの共起関係を分析
+    tag_types = list(st.session_state.tag_definitions.keys())
+    co_occurrence = pd.DataFrame(0, index=tag_types, columns=tag_types)
+    
+    # 発言ごとにタグの共起をカウント
+    for utterance_id, utterance_tags in tags.items():
+        # この発言に付与されているタグタイプのリスト
+        used_tag_types = list(utterance_tags.keys())
+        
+        # タグタイプの組み合わせごとにカウント
+        for i, tag_type1 in enumerate(used_tag_types):
+            for tag_type2 in used_tag_types[i:]:  # 自己共起も含める
+                co_occurrence.loc[tag_type1, tag_type2] += 1
+                if tag_type1 != tag_type2:  # 対称行列にする
+                    co_occurrence.loc[tag_type2, tag_type1] += 1
+    
+    # タグ名に変換
+    co_occurrence.index = [st.session_state.tag_definitions[t]['name'] for t in co_occurrence.index]
+    co_occurrence.columns = [st.session_state.tag_definitions[t]['name'] for t in co_occurrence.columns]
+    
+    # ヒートマップを作成
+    fig = px.imshow(
+        co_occurrence,
+        labels=dict(x="タグタイプ", y="タグタイプ", color="共起回数"),
+        x=co_occurrence.columns,
+        y=co_occurrence.index,
+        color_continuous_scale="Viridis",
+        title="タグタイプの共起ヒートマップ"
+    )
+    
+    fig.update_layout(
+        height=600,
+        xaxis=dict(tickangle=45),
+    )
+    
     return fig
 
 # サイドバー - ファイルアップロードと基本機能
@@ -412,7 +654,7 @@ st.title("LAT35 on the web: mark-up system")
 # データが空でない場合のみ表示
 if not st.session_state.data.empty:
     # タブを作成
-    tab1, tab2, tab3, tab4 = st.tabs(["発言一覧とタグ付け", "関係性の可視化", "タグ統計", "タグツリー"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["発言一覧とタグ付け", "関係性の可視化", "タグ統計", "タグツリー", "タグ分析"])
     
     with tab1:
         # 発言一覧の表示
@@ -736,64 +978,37 @@ if not st.session_state.data.empty:
     with tab4:
         st.subheader("タグツリー")
         
-        # タグのツリー構造データを作成
-        tree_data = {
-            'name': 'すべてのタグ',
-            'children': []
-        }
-        
-        # タグタイプごとのノードを作成
-        for tag_type, tag_info in st.session_state.tag_definitions.items():
-            tag_type_node = {
-                'name': f"{tag_info['name']} <{tag_type}>",
-                'children': []
-            }
-            
-            # このタグタイプが使われている発言を集める
-            for utterance_id, tags in st.session_state.tags.items():
-                if tag_type in tags:
-                    utterance_row = st.session_state.data[st.session_state.data['発言番号'].astype(str) == utterance_id].iloc[0]
-                    utterance_node = {
-                        'name': f"#{utterance_id}: {utterance_row['発言者']}",
-                        'children': []
-                    }
-                    
-                    # この発言のこのタグタイプのタグを追加
-                    for tag in tags[tag_type]:
-                        tag_node = {
-                            'name': tag['value']
-                        }
-                        
-                        # テキスト選択がある場合
-                        if 'start' in tag and 'end' in tag:
-                            selected_text = utterance_row['発言内容'][tag['start']:tag['end']]
-                            tag_node['name'] += f" (\"{selected_text}\")"
-                        
-                        utterance_node['children'].append(tag_node)
-                    
-                    tag_type_node['children'].append(utterance_node)
-            
-            # 子ノードがある場合のみツリーに追加
-            if tag_type_node['children']:
-                tree_data['children'].append(tag_type_node)
-        
-        # Plotlyを使用してツリー図を描画
-        if tree_data['children']:
-            fig = plot_tree(tree_data)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("タグが付与されていません。")
-        
         # フィルタリングオプション
-        st.subheader("タグフィルタリング")
         selected_tag_type = st.selectbox(
             "表示するタグタイプを選択",
             ['すべて'] + list(st.session_state.tag_definitions.keys()),
             format_func=lambda x: "すべて" if x == 'すべて' else f"{st.session_state.tag_definitions[x]['name']} <{x}>"
         )
         
+        # タグのツリー構造データを作成（フィルタリングに対応）
+        tree_data = create_tree_data(st.session_state.tags, st.session_state.data, selected_tag_type)
+        
+        # インタラクティブなツリー図を描画
+        if tree_data['children']:
+            st.markdown("""
+            <div class="viz-container">
+                <h4>インタラクティブタグツリー</h4>
+                <p>ノードをドラッグして移動できます。ズームイン/アウトも可能です。</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            fig = plot_interactive_tree(tree_data)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            if selected_tag_type == 'すべて':
+                st.info("タグが付与されていません。")
+            else:
+                st.info(f"選択されたタグタイプ {st.session_state.tag_definitions[selected_tag_type]['name']} <{selected_tag_type}> は使用されていません。")
+        
         # フィルタリングされたタグデータを表示
         if selected_tag_type != 'すべて':
+            st.subheader(f"{st.session_state.tag_definitions[selected_tag_type]['name']} <{selected_tag_type}> のタグ一覧")
+            
             filtered_data = []
             
             for utterance_id, tags in st.session_state.tags.items():
@@ -820,9 +1035,89 @@ if not st.session_state.data.empty:
                 st.dataframe(pd.DataFrame(filtered_data))
             else:
                 st.info(f"選択されたタグタイプ {st.session_state.tag_definitions[selected_tag_type]['name']} <{selected_tag_type}> は使用されていません。")
+    
+    with tab5:
+        st.subheader("タグ分析")
+        
+        # タグの分析方法を選択
+        analysis_type = st.radio(
+            "分析方法を選択",
+            ["サンバースト図", "タグ共起ヒートマップ", "タグ値の頻度分析"]
+        )
+        
+        if analysis_type == "サンバースト図":
+            st.markdown("""
+            <div class="viz-container">
+                <h4>タグ階層サンバースト図</h4>
+                <p>タグの階層構造を円形のサンバースト図で表示します。内側から外側に向かって、タグタイプ→タグ値→発言の階層で表示されます。</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # サンバースト図を作成
+            sunburst_fig = create_sunburst_chart(st.session_state.tags, st.session_state.data)
+            if sunburst_fig:
+                st.plotly_chart(sunburst_fig, use_container_width=True)
+            else:
+                st.info("タグが付与されていません。")
+        
+        elif analysis_type == "タグ共起ヒートマップ":
+            st.markdown("""
+            <div class="viz-container">
+                <h4>タグタイプの共起ヒートマップ</h4>
+                <p>同じ発言に付与されたタグタイプの組み合わせを可視化します。色が濃いほど、その組み合わせが多く出現しています。</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # ヒートマップを作成
+            heatmap_fig = create_tag_heatmap(st.session_state.tags, st.session_state.data)
+            st.plotly_chart(heatmap_fig, use_container_width=True)
+        
+        elif analysis_type == "タグ値の頻度分析":
+            st.markdown("""
+            <div class="viz-container">
+                <h4>タグ値の頻度分析</h4>
+                <p>各タグタイプごとに、タグ値の出現頻度を分析します。</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # タグタイプを選択
+            tag_type_for_freq = st.selectbox(
+                "分析するタグタイプを選択",
+                list(st.session_state.tag_definitions.keys()),
+                format_func=lambda x: f"{st.session_state.tag_definitions[x]['name']} <{x}>"
+            )
+            
+            # タグ値の頻度を集計
+            tag_values = []
+            for utterance_id, tags in st.session_state.tags.items():
+                if tag_type_for_freq in tags:
+                    for tag in tags[tag_type_for_freq]:
+                        tag_values.append(tag['value'])
+            
+            if tag_values:
+                # 頻度をカウント
+                value_counts = pd.Series(tag_values).value_counts().reset_index()
+                value_counts.columns = ['タグ値', '頻度']
+                
+                # 棒グラフで表示
+                fig = px.bar(
+                    value_counts,
+                    x='タグ値',
+                    y='頻度',
+                    title=f"{st.session_state.tag_definitions[tag_type_for_freq]['name']} <{tag_type_for_freq}> のタグ値頻度",
+                    color='タグ値',
+                    color_discrete_sequence=px.colors.qualitative.Pastel
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # データテーブルも表示
+                st.dataframe(value_counts)
+            else:
+                st.info(f"選択されたタグタイプ {st.session_state.tag_definitions[tag_type_for_freq]['name']} <{tag_type_for_freq}> は使用されていません。")
 else:
     st.info("CSVファイルをアップロードしてください。")
 
 # フッター
 st.markdown("---")
-st.markdown("LAT35 on the web: mark-up system - Text Encoding Initiative (TEI) inspired markup system for classroom research")
+st.markdown("LAT35 on the web: mark-up system - Text Encoding Initiative (TEI) inspired markup system for Lesson Analysis")
