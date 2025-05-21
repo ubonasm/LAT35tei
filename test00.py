@@ -13,7 +13,7 @@ import json
 from typing import Dict, List, Tuple, Any, Optional
 
 # アプリケーションのタイトルとスタイル設定
-st.set_page_config(page_title="授業記録マークアップシステム", layout="wide")
+st.set_page_config(page_title="LAT35 on the web: mark-up system", layout="wide")
 
 # CSSスタイルの追加
 st.markdown("""
