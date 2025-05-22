@@ -12,9 +12,16 @@ import xml.etree.ElementTree as ET
 import json
 from typing import Dict, List, Tuple, Any, Optional
 import random
+import html
+import graphviz
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_svg import FigureCanvasSVG
+import tempfile
+import os
+import math
 
 # アプリケーションのタイトルとスタイル設定
-st.set_page_config(page_title="LAT35 on the web: mark-up system", layout="wide")
+st.set_page_config(page_title="授業研究TEIマークアップシステム", layout="wide")
 
 # CSSスタイルの追加
 st.markdown("""
@@ -88,6 +95,7 @@ st.markdown("""
         padding: 10px;
         margin: 10px 0;
         background-color: #ffffff;
+        position: relative;
     }
     
     .utterance-header {
@@ -123,6 +131,83 @@ st.markdown("""
         margin-right: 5px;
         border-radius: 3px;
     }
+    
+    /* フェーズブロックのスタイル */
+    .phase-block {
+        border: 2px solid;
+        border-radius: 10px;
+        padding: 15px;
+        margin: 20px 0;
+        position: relative;
+    }
+    
+    .phase-label {
+        position: absolute;
+        top: -12px;
+        left: 20px;
+        background-color: white;
+        padding: 0 10px;
+        font-weight: bold;
+    }
+    
+    /* 関係矢印のスタイル */
+    .relation-container {
+        position: relative;
+        margin: 30px 0;
+    }
+    
+    .relation-arrow {
+        position: absolute;
+        border-bottom: 2px solid;
+        border-right: 2px solid;
+        transform: rotate(45deg);
+        width: 10px;
+        height: 10px;
+    }
+    
+    .relation-line {
+        position: absolute;
+        height: 2px;
+    }
+    
+    .relation-label {
+        position: absolute;
+        background-color: white;
+        padding: 0 5px;
+        font-size: 0.8em;
+        white-space: nowrap;
+    }
+    
+    /* 関係矢印のコンテナ */
+    .relations-view {
+        position: relative;
+        margin: 20px 0;
+        padding: 20px 0;
+        border: 1px dashed #ccc;
+        border-radius: 5px;
+        background-color: #f9f9f9;
+    }
+    
+    .utterance-id-marker {
+        position: absolute;
+        right: 10px;
+        top: 10px;
+        background-color: #f0f0f0;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.8em;
+        color: #666;
+    }
+    
+    /* SVG表示用のスタイル */
+    .svg-container {
+        width: 100%;
+        overflow: auto;
+        margin: 20px 0;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        padding: 10px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -136,15 +221,15 @@ if 'current_utterance' not in st.session_state:
 if 'tag_definitions' not in st.session_state:
     # タグの定義と説明
     st.session_state.tag_definitions = {
-        'code': {'name': 'コード・概念', 'color': '#FFD700', 'description': '発言に対する概念やコードを付与します　例）気づき、止められない理由、伝えたい想いとの逆行'},
-        'relation': {'name': '関係性', 'color': '#FF6347', 'description': '他の発言との関係を示します　例）反論、付け足し、展開'},
-        'act': {'name': '発話行為', 'color': '#98FB98', 'description': '発話行為の種類を分類します　例）問いかけ、説明、指示'},
-        'who': {'name': '発言者属性', 'color': '#87CEFA', 'description': '発言者の役割や属性を記録します　例）教師、児童'},
+        'code': {'name': 'コード・概念', 'color': '#FFD700', 'description': '発言に対する概念やコードを付与します'},
+        'relation': {'name': '関係性', 'color': '#FF6347', 'description': '他の発言との関係を示します'},
+        'act': {'name': '発話行為', 'color': '#98FB98', 'description': '発話行為の種類を分類します'},
+        'who': {'name': '発言者属性', 'color': '#87CEFA', 'description': '発言者の役割や属性を記録します'},
         'time': {'name': '時間情報', 'color': '#DDA0DD', 'description': 'タイムスタンプや経過時間を記録します'},
-        'note': {'name': '注記', 'color': '#F0E68C', 'description': '分析者によるメモや注記を追加します'},
-        'phase': {'name': '授業フェーズ', 'color': '#FFA07A', 'description': '授業のフェーズや段階を示します　例）導入、第2分節、グループ活動'},
-        'meta': {'name': 'メタ情報', 'color': '#B0C4DE', 'description': '発言単位のメタ情報・非言語情報を記録します　例）興奮、泣きながら、かなりの間を空けて'},
-        # 'group': {'name': 'グループ', 'color': '#D8BFD8', 'description': '発言のまとまり、活動、分節、話題を示します'}
+        'note': {'name': '注記', 'color': '#F0E68C', 'description': '分析者による注記を追加します'},
+        'phase': {'name': '授業フェーズ', 'color': '#FFA07A', 'description': '授業のフェーズや段階を示します'},
+        'meta': {'name': 'メタ情報', 'color': '#B0C4DE', 'description': '発言単位のメタ情報を記録します'},
+        'group': {'name': 'グループ', 'color': '#D8BFD8', 'description': '発言のまとまり、活動、分節、話題を示します'}
     }
 
 # タグ付けされたテキストをXML形式に変換する関数
@@ -212,6 +297,18 @@ def get_json_download_link(data, filename="tags_data.json", text="タグデー�
     json_str = json.dumps(data, ensure_ascii=False, indent=2)
     b64 = base64.b64encode(json_str.encode('utf-8')).decode()
     href = f'data:file/json;base64,{b64}'
+    return f'<a href="{href}" download="{filename}" class="download-button">{text}</a>'
+
+# DOTファイルをダウンロードするための関数
+def get_dot_download_link(dot_content, filename="graph.dot", text="DOTファイルをダウンロード"):
+    b64 = base64.b64encode(dot_content.encode('utf-8')).decode()
+    href = f'data:file/dot;base64,{b64}'
+    return f'<a href="{href}" download="{filename}" class="download-button">{text}</a>'
+
+# SVGファイルをダウンロードするための関数
+def get_svg_download_link(svg_content, filename="graph.svg", text="SVGファイルをダウンロード"):
+    b64 = base64.b64encode(svg_content.encode('utf-8')).decode()
+    href = f'data:image/svg+xml;base64,{b64}'
     return f'<a href="{href}" download="{filename}" class="download-button">{text}</a>'
 
 # マークアップされたCSVファイルを作成する関数
@@ -538,9 +635,466 @@ def create_marked_text(text, tags):
     
     return ''.join(result)
 
+# フェーズタグでグループ化する関数
+def group_by_phase(filtered_df, tags, filter_options=None):
+    # フェーズごとに発言をグループ化
+    phase_groups = defaultdict(list)
+    no_phase_utterances = []
+    
+    for _, row in filtered_df.iterrows():
+        utterance_id = str(row['発言番号'])
+        utterance_tags = tags.get(utterance_id, {})
+        
+        # フェーズタグを検索
+        phase_found = False
+        if 'phase' in utterance_tags:
+            for phase_tag in utterance_tags['phase']:
+                if 'value' in phase_tag:
+                    # フィルタリングがある場合は確認
+                    if filter_options and 'phase' not in filter_options:
+                        no_phase_utterances.append(row)
+                        phase_found = True
+                        break
+                    
+                    phase_value = phase_tag['value']
+                    phase_groups[phase_value].append(row)
+                    phase_found = True
+                    break
+        
+        if not phase_found:
+            no_phase_utterances.append(row)
+    
+    return phase_groups, no_phase_utterances
+
+# 関係タグの情報を抽出する関数
+def extract_relation_info(tags, data):
+    relations = []
+    
+    for utterance_id, utterance_tags in tags.items():
+        if 'relation' in utterance_tags:
+            for relation in utterance_tags['relation']:
+                if 'target' in relation and 'value' in relation:
+                    source_row = data[data['発言番号'].astype(str) == utterance_id]
+                    target_row = data[data['発言番号'].astype(str) == relation['target']]
+                    
+                    if not source_row.empty and not target_row.empty:
+                        relations.append({
+                            'source_id': utterance_id,
+                            'target_id': relation['target'],
+                            'value': relation['value'],
+                            'source_speaker': source_row.iloc[0]['発言者'],
+                            'target_speaker': target_row.iloc[0]['発言者']
+                        })
+    
+    return relations
+
+# 関係矢印を描画するPlotly図を作成する関数
+def create_relation_arrows_plot(relations, data):
+    if not relations:
+        return None
+    
+    # 発言IDを数値に変換
+    utterance_ids = sorted(list(set([int(r['source_id']) for r in relations] + [int(r['target_id']) for r in relations])))
+    id_to_pos = {id: i for i, id in enumerate(utterance_ids)}
+    
+    # 矢印のトレースを作成
+    arrow_traces = []
+    
+    for relation in relations:
+        source_id = int(relation['source_id'])
+        target_id = int(relation['target_id'])
+        
+        # 位置を計算
+        source_pos = id_to_pos[source_id]
+        target_pos = id_to_pos[target_id]
+        
+        # 曲線の制御点を計算
+        control_y = 0.5 + abs(target_pos - source_pos) * 0.1
+        
+        # 曲線の座標を生成
+        curve_x = []
+        curve_y = []
+        
+        # 曲線の点を生成（ベジェ曲線の近似）
+        steps = 20
+        for i in range(steps + 1):
+            t = i / steps
+            # 二次ベジェ曲線の計算
+            x = (1-t)**2 * source_pos + 2*(1-t)*t * ((source_pos + target_pos) / 2) + t**2 * target_pos
+            y = (1-t)**2 * 0 + 2*(1-t)*t * control_y + t**2 * 0
+            curve_x.append(x)
+            curve_y.append(y)
+        
+        # 矢印の線を追加
+        arrow_trace = go.Scatter(
+            x=curve_x,
+            y=curve_y,
+            mode='lines',
+            line=dict(color='#FF6347', width=2),
+            hoverinfo='text',
+            hovertext=f"{relation['value']}: #{relation['source_id']} → #{relation['target_id']}",
+            name=relation['value']
+        )
+        arrow_traces.append(arrow_trace)
+        
+        # 矢印の先端を追加
+        arrow_head = go.Scatter(
+            x=[curve_x[-2], curve_x[-1], curve_x[-2]],
+            y=[curve_y[-2] - 0.05, curve_y[-1], curve_y[-2] + 0.05],
+            mode='lines',
+            line=dict(color='#FF6347', width=2),
+            hoverinfo='none',
+            showlegend=False
+        )
+        arrow_traces.append(arrow_head)
+        
+        # 関係ラベルを追加
+        label_trace = go.Scatter(
+            x=[(source_pos + target_pos) / 2],
+            y=[control_y + 0.1],
+            mode='text',
+            text=[relation['value']],
+            textposition='top center',
+            hoverinfo='none',
+            showlegend=False
+        )
+        arrow_traces.append(label_trace)
+    
+    # 発言ノードを追加
+    node_x = []
+    node_y = []
+    node_text = []
+    
+    for utterance_id in utterance_ids:
+        row = data[data['発言番号'] == utterance_id]
+        if not row.empty:
+            node_x.append(id_to_pos[utterance_id])
+            node_y.append(0)
+            node_text.append(f"#{utterance_id}: {row.iloc[0]['発言者']}")
+    
+    node_trace = go.Scatter(
+        x=node_x,
+        y=node_y,
+        mode='markers+text',
+        marker=dict(
+            size=15,
+            color='skyblue',
+            line=dict(width=2, color='DarkSlateGrey')
+        ),
+        text=node_text,
+        textposition='bottom center',
+        hoverinfo='text',
+        showlegend=False
+    )
+    
+    # 図を作成
+    fig = go.Figure(data=arrow_traces + [node_trace])
+    
+    # レイアウトを設定
+    fig.update_layout(
+        title='発言間の関係',
+        showlegend=True,
+        hovermode='closest',
+        margin=dict(b=20, l=5, r=5, t=40),
+        xaxis=dict(
+            showgrid=False,
+            zeroline=False,
+            showticklabels=False,
+            range=[-0.5, len(utterance_ids) - 0.5]
+        ),
+        yaxis=dict(
+            showgrid=False,
+            zeroline=False,
+            showticklabels=False,
+            range=[-0.2, 1]
+        ),
+        height=300,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        )
+    )
+    
+    return fig
+
+# Graphvizを使用してDOTファイルを生成する関数
+def create_dot_file(tags, data, selected_tag_type='すべて'):
+    # Graphvizオブジェクトを作成
+    dot = graphviz.Digraph(comment='授業記録タグ分析')
+    dot.attr(rankdir='LR', size='8,5', fontname='MS Gothic')
+    
+    # ノードの属性を設定
+    dot.attr('node', shape='box', style='filled', fontname='MS Gothic')
+    
+    # 処理するタグタイプを決定
+    tag_types = [selected_tag_type] if selected_tag_type != 'すべて' else st.session_state.tag_definitions.keys()
+    
+    # タグタイプごとにサブグラフを作成
+    for tag_type in tag_types:
+        if tag_type not in st.session_state.tag_definitions:
+            continue
+        
+        tag_info = st.session_state.tag_definitions[tag_type]
+        tag_color = tag_info['color'].replace('#', '')
+        
+        # タグタイプのサブグラフを作成
+        with dot.subgraph(name=f'cluster_{tag_type}') as c:
+            c.attr(label=f"{tag_info['name']} <{tag_type}>", color=tag_color, fontcolor=tag_color)
+            
+            # このタグタイプが使われている発言を集める
+            for utterance_id, utterance_tags in tags.items():
+                if tag_type in utterance_tags:
+                    utterance_row = data[data['発言番号'].astype(str) == utterance_id].iloc[0]
+                    
+                    # この発言のこのタグタイプのタグを追加
+                    for tag in utterance_tags[tag_type]:
+                        tag_value = tag['value']
+                        
+                        # タグ値のノードを作成（存在しない場合）
+                        tag_node_id = f"{tag_type}_{tag_value.replace(' ', '_')}"
+                        c.node(tag_node_id, tag_value, fillcolor=tag_info['color'], fontcolor='black')
+                        
+                        # 発言ノードを作成
+                        utterance_node_id = f"utterance_{utterance_id}"
+                        utterance_label = f"#{utterance_id}: {utterance_row['発言者']}\n{utterance_row['発言内容'][:30]}..."
+                        dot.node(utterance_node_id, utterance_label, fillcolor='lightblue')
+                        
+                        # タグ値から発言へのエッジを作成
+                        if 'start' in tag and 'end' in tag:
+                            # テキスト選択タグの場合
+                            selected_text = utterance_row['発言内容'][tag['start']:tag['end']]
+                            dot.edge(tag_node_id, utterance_node_id, label=f'"{selected_text}"', color=tag_color)
+                        elif 'target' in tag:
+                            # 関係タグの場合
+                            target_id = tag['target']
+                            target_node_id = f"utterance_{target_id}"
+                            
+                            # ターゲット発言ノードを作成
+                            target_row = data[data['発言番号'].astype(str) == target_id].iloc[0]
+                            target_label = f"#{target_id}: {target_row['発言者']}\n{target_row['発言内容'][:30]}..."
+                            dot.node(target_node_id, target_label, fillcolor='lightblue')
+                            
+                            # 関係を表すエッジを作成
+                            dot.edge(utterance_node_id, target_node_id, label=tag_value, color=tag_color)
+                        else:
+                            # その他のタグの場合
+                            dot.edge(tag_node_id, utterance_node_id, color=tag_color)
+    
+    return dot
+
+# SVGでフェーズブロックと関係矢印を描画する関数
+def create_svg_visualization(filtered_df, tags, filter_options=None):
+    # SVGのヘッダー
+    svg_width = 1000
+    svg_height = 800
+    svg = f'<svg width="{svg_width}" height="{svg_height}" xmlns="http://www.w3.org/2000/svg">\n'
+    
+    # スタイル定義
+    svg += '''
+    <defs>
+        <style>
+            .utterance-box { fill: white; stroke: #ddd; stroke-width: 1; }
+            .utterance-text { font-family: sans-serif; font-size: 12px; }
+            .utterance-header { font-weight: bold; }
+            .phase-box { fill: none; stroke-width: 2; rx: 10; ry: 10; }
+            .phase-label { font-family: sans-serif; font-size: 14px; font-weight: bold; }
+            .relation-line { stroke-width: 2; fill: none; }
+            .relation-arrow { stroke-width: 2; fill: none; }
+            .relation-label { font-family: sans-serif; font-size: 10px; text-anchor: middle; }
+            .tag-marker { rx: 3; ry: 3; }
+        </style>
+    </defs>
+    '''
+    
+    # フェーズタグでグループ化
+    phase_groups, no_phase_utterances = group_by_phase(filtered_df, tags, filter_options)
+    
+    # 関係タグの情報を抽出
+    relation_info = extract_relation_info(tags, filtered_df)
+    
+    # フィルタリング
+    filtered_relations = []
+    for relation in relation_info:
+        source_id = int(relation['source_id'])
+        target_id = int(relation['target_id'])
+        
+        # 発言番号の範囲でフィルタリング
+        if source_id in filtered_df['発言番号'].values and target_id in filtered_df['発言番号'].values:
+            filtered_relations.append(relation)
+    
+    # 発言の位置情報を記録
+    utterance_positions = {}
+    
+    # Y座標の初期値
+    y_pos = 50
+    
+    # フェーズごとに発言を描画
+    for phase_value, phase_utterances in phase_groups.items():
+        phase_color = st.session_state.tag_definitions['phase']['color']
+        
+        # フェーズの開始Y座標を記録
+        phase_start_y = y_pos
+        
+        # フェーズラベルを描画
+        svg += f'<text x="20" y="{y_pos - 15}" class="phase-label" fill="{phase_color}">{html.escape(phase_value)}</text>\n'
+        
+        # このフェーズの発言を描画
+        for row in phase_utterances:
+            utterance_id = str(row['発言番号'])
+            
+            # この発言のタグを取得
+            utterance_tags = tags.get(utterance_id, {})
+            
+            # タグタイプでフィルタリング
+            if filter_options:
+                filtered_tags = {tag_type: tags for tag_type, tags in utterance_tags.items() if tag_type in filter_options}
+            else:
+                filtered_tags = utterance_tags
+            
+            # 発言ボックスを描画
+            box_height = 60  # 発言ボックスの高さ
+            svg += f'<rect x="50" y="{y_pos}" width="800" height="{box_height}" class="utterance-box" />\n'
+            
+            # 発言ヘッダーを描画
+            svg += f'<text x="60" y="{y_pos + 20}" class="utterance-text utterance-header">#{row["発言番号"]}: {html.escape(row["発言者"])}</text>\n'
+            
+            # 発言内容を描画
+            content_text = html.escape(row['発言内容'][:100]) + ('...' if len(row['発言内容']) > 100 else '')
+            svg += f'<text x="60" y="{y_pos + 40}" class="utterance-text">{content_text}</text>\n'
+            
+            # 発言IDマーカーを描画
+            svg += f'<text x="830" y="{y_pos + 20}" class="utterance-text" text-anchor="end">ID: {row["発言番号"]}</text>\n'
+            
+            # テキスト選択タグを描画
+            text_tags = []
+            for tag_type, tag_list in filtered_tags.items():
+                for tag in tag_list:
+                    if 'start' in tag and 'end' in tag:
+                        text_tags.append({
+                            'type': tag_type,
+                            'value': tag['value'],
+                            'start': tag['start'],
+                            'end': tag['end'],
+                            'color': st.session_state.tag_definitions[tag_type]['color']
+                        })
+            
+            # テキストマーカーを描画（簡易版）
+            if text_tags:
+                marker_y = y_pos + 55
+                marker_x = 60
+                for tag in text_tags:
+                    marker_width = min(100, len(tag['value']) * 8)  # タグ値の長さに応じた幅
+                    svg += f'<rect x="{marker_x}" y="{marker_y - 10}" width="{marker_width}" height="12" class="tag-marker" fill="{tag["color"]}" />\n'
+                    svg += f'<text x="{marker_x + 5}" y="{marker_y}" class="utterance-text" font-size="10">{html.escape(tag["value"])}</text>\n'
+                    marker_x += marker_width + 10
+            
+            # 発言の位置を記録
+            utterance_positions[int(row['発言番号'])] = {
+                'x': 450,  # 発言ボックスの中心X座標
+                'y': y_pos + box_height / 2  # 発言ボックスの中心Y座標
+            }
+            
+            # Y座標を更新
+            y_pos += box_height + 20
+        
+        # フェーズボックスを描画
+        phase_height = y_pos - phase_start_y
+        svg += f'<rect x="40" y="{phase_start_y - 30}" width="820" height="{phase_height + 40}" class="phase-box" stroke="{phase_color}" />\n'
+        
+        # フェーズ間の余白
+        y_pos += 30
+    
+    # フェーズタグのない発言を描画
+    if no_phase_utterances:
+        # ラベルを描画
+        svg += f'<text x="20" y="{y_pos - 15}" class="phase-label" fill="#999">フェーズタグのない発言</text>\n'
+        
+        # 発言を描画
+        for row in no_phase_utterances:
+            utterance_id = str(row['発言番号'])
+            
+            # この発言のタグを取得
+            utterance_tags = tags.get(utterance_id, {})
+            
+            # タグタイプでフィルタリング
+            if filter_options:
+                filtered_tags = {tag_type: tags for tag_type, tags in utterance_tags.items() if tag_type in filter_options}
+            else:
+                filtered_tags = utterance_tags
+            
+            # 発言ボックスを描画
+            box_height = 60
+            svg += f'<rect x="50" y="{y_pos}" width="800" height="{box_height}" class="utterance-box" />\n'
+            
+            # 発言ヘッダーを描画
+            svg += f'<text x="60" y="{y_pos + 20}" class="utterance-text utterance-header">#{row["発言番号"]}: {html.escape(row["発言者"])}</text>\n'
+            
+            # 発言内容を描画
+            content_text = html.escape(row['発言内容'][:100]) + ('...' if len(row['発言内容']) > 100 else '')
+            svg += f'<text x="60" y="{y_pos + 40}" class="utterance-text">{content_text}</text>\n'
+            
+            # 発言IDマーカーを描画
+            svg += f'<text x="830" y="{y_pos + 20}" class="utterance-text" text-anchor="end">ID: {row["発言番号"]}</text>\n'
+            
+            # 発言の位置を記録
+            utterance_positions[int(row['発言番号'])] = {
+                'x': 450,
+                'y': y_pos + box_height / 2
+            }
+            
+            # Y座標を更新
+            y_pos += box_height + 20
+    
+    # 関係矢印を描画
+    for relation in filtered_relations:
+        source_id = int(relation['source_id'])
+        target_id = int(relation['target_id'])
+        
+        if source_id in utterance_positions and target_id in utterance_positions:
+            source_pos = utterance_positions[source_id]
+            target_pos = utterance_positions[target_id]
+            
+            # 関係の色
+            relation_color = st.session_state.tag_definitions['relation']['color']
+            
+            # 曲線の制御点を計算
+            control_x = (source_pos['x'] + target_pos['x']) / 2
+            control_y = (source_pos['y'] + target_pos['y']) / 2 - 50  # 上に湾曲
+            
+            # 曲線を描画
+            svg += f'<path d="M {source_pos["x"]} {source_pos["y"]} Q {control_x} {control_y} {target_pos["x"]} {target_pos["y"]}" class="relation-line" stroke="{relation_color}" />\n'
+            
+            # 矢印の先端を描画
+            # 曲線の終点付近の角度を計算
+            dx = target_pos['x'] - control_x
+            dy = target_pos['y'] - control_y
+            angle = math.atan2(dy, dx)
+            
+            # 矢印の先端の座標を計算
+            arrow_size = 10
+            arrow_x1 = target_pos['x'] - arrow_size * math.cos(angle - math.pi/6)
+            arrow_y1 = target_pos['y'] - arrow_size * math.sin(angle - math.pi/6)
+            arrow_x2 = target_pos['x'] - arrow_size * math.cos(angle + math.pi/6)
+            arrow_y2 = target_pos['y'] - arrow_size * math.sin(angle + math.pi/6)
+            
+            svg += f'<path d="M {target_pos["x"]} {target_pos["y"]} L {arrow_x1} {arrow_y1} M {target_pos["x"]} {target_pos["y"]} L {arrow_x2} {arrow_y2}" class="relation-arrow" stroke="{relation_color}" />\n'
+            
+            # 関係ラベルを描画
+            label_x = control_x
+            label_y = control_y - 10
+            svg += f'<text x="{label_x}" y="{label_y}" class="relation-label" fill="{relation_color}">{html.escape(relation["value"])}</text>\n'
+    
+    # SVGのフッター
+    svg += '</svg>'
+    
+    return svg
+
 # サイドバー - ファイルアップロードと基本機能
 with st.sidebar:
-    st.title("LAT35 on the web")
+    st.title("授業研究TEIマークアップシステム")
     
     # ファイルアップロード（CSVとJSON）
     st.header("1. データのアップロード")
@@ -613,12 +1167,19 @@ with st.sidebar:
         st.markdown("</div>", unsafe_allow_html=True)
 
 # メイン画面
-st.title("LAT35 on the web: mark-up system")
+st.title("授業記録マークアップシステム")
 
 # データが空でない場合のみ表示
 if not st.session_state.data.empty:
-    # タブを作成（発言マーカー表示タブを追加）
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["発言一覧とタグ付け", "関係性の可視化", "タグ統計", "タグツリー", "発言マーカー表示"])
+    # タブを作成
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "発言一覧とタグ付け", 
+        "関係性の可視化", 
+        "タグ統計", 
+        "タグツリー", 
+        "発言マーカー表示",
+        "Graphviz/SVG表示"
+    ])
     
     with tab1:
         # 発言一覧の表示
@@ -1013,6 +1574,12 @@ if not st.session_state.data.empty:
             """, unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
         
+        # 表示モードの選択
+        display_mode = st.radio(
+            "表示モード",
+            ["標準表示", "フェーズブロック表示", "関係矢印表示", "フェーズ＋関係表示"]
+        )
+        
         # フィルタリングオプション
         filter_options = st.multiselect(
             "表示するタグタイプを選択（未選択の場合はすべて表示）",
@@ -1054,54 +1621,461 @@ if not st.session_state.data.empty:
         if filtered_df.empty:
             st.info("条件に一致する発言がありません。")
         else:
-            # 発言ごとにマーカー付きテキストを表示
-            for _, row in filtered_df.iterrows():
-                utterance_id = str(row['発言番号'])
+            # 表示モードに応じた処理
+            if display_mode == "標準表示":
+                # 発言ごとにマーカー付きテキストを表示
+                for _, row in filtered_df.iterrows():
+                    utterance_id = str(row['発言番号'])
+                    
+                    # この発言のタグを取得
+                    utterance_tags = st.session_state.tags.get(utterance_id, {})
+                    
+                    # タグタイプでフィルタリング
+                    if filter_options:
+                        filtered_tags = {tag_type: tags for tag_type, tags in utterance_tags.items() if tag_type in filter_options}
+                    else:
+                        filtered_tags = utterance_tags
+                    
+                    # マーカー付きテキストを生成
+                    marked_text = create_marked_text(row['発言内容'], filtered_tags)
+                    
+                    # 発言を表示
+                    st.markdown(f"""
+                    <div class="marked-utterance">
+                        <div class="utterance-header">
+                            #{row['発言番号']}: {row['発言者']}
+                        </div>
+                        <div class="utterance-content">
+                            {marked_text}
+                        </div>
+                        <div class="utterance-id-marker">ID: {row['発言番号']}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # 非テキスト選択タグ（関係タグなど）を表示
+                    non_text_tags = []
+                    for tag_type, tags in filtered_tags.items():
+                        for tag in tags:
+                            if 'start' not in tag or 'end' not in tag:
+                                tag_info = f"<{tag_type}> {st.session_state.tag_definitions[tag_type]['name']}: {tag['value']}"
+                                if 'target' in tag:
+                                    target_row = st.session_state.data[st.session_state.data['発言番号'].astype(str) == tag['target']].iloc[0]
+                                    tag_info += f" (関連発言: #{tag['target']}: {target_row['発言者']})"
+                                non_text_tags.append(tag_info)
+                    
+                    if non_text_tags:
+                        st.markdown(f"""
+                        <div style="margin-left: 20px; margin-bottom: 10px; font-size: 0.9em; color: #666;">
+                            <strong>その他のタグ:</strong> {' | '.join(non_text_tags)}
+                        </div>
+                        """, unsafe_allow_html=True)
+            
+            elif display_mode == "フェーズブロック表示" or display_mode == "フェーズ＋関係表示":
+                # フェーズタグでグループ化
+                phase_groups, no_phase_utterances = group_by_phase(filtered_df, st.session_state.tags, filter_options)
                 
-                # この発言のタグを取得
-                utterance_tags = st.session_state.tags.get(utterance_id, {})
+                # フェーズごとに表示
+                for phase_value, phase_utterances in phase_groups.items():
+                    phase_color = st.session_state.tag_definitions['phase']['color']
+                    
+                    # フェーズブロックの開始
+                    st.markdown(f"""
+                    <div class="phase-block" style="border-color: {phase_color};">
+                        <div class="phase-label" style="color: {phase_color};">フェーズ: {phase_value}</div>
+                    """, unsafe_allow_html=True)
+                    
+                    # このフェーズの発言を表示
+                    for row in phase_utterances:
+                        utterance_id = str(row['発言番号'])
+                        
+                        # この発言のタグを取得
+                        utterance_tags = st.session_state.tags.get(utterance_id, {})
+                        
+                        # タグタイプでフィルタリング
+                        if filter_options:
+                            filtered_tags = {tag_type: tags for tag_type, tags in utterance_tags.items() if tag_type in filter_options}
+                        else:
+                            filtered_tags = utterance_tags
+                        
+                        # マーカー付きテキストを生成
+                        marked_text = create_marked_text(row['発言内容'], filtered_tags)
+                        
+                        # 発言を表示
+                        st.markdown(f"""
+                        <div class="marked-utterance">
+                            <div class="utterance-header">
+                                #{row['発言番号']}: {row['発言者']}
+                            </div>
+                            <div class="utterance-content">
+                                {marked_text}
+                            </div>
+                            <div class="utterance-id-marker">ID: {row['発言番号']}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # 非テキスト選択タグ（関係タグなど）を表示
+                        non_text_tags = []
+                        for tag_type, tags in filtered_tags.items():
+                            if tag_type != 'phase':  # フェーズタグは既に表示しているので除外
+                                for tag in tags:
+                                    if 'start' not in tag or 'end' not in tag:
+                                        tag_info = f"<{tag_type}> {st.session_state.tag_definitions[tag_type]['name']}: {tag['value']}"
+                                        if 'target' in tag:
+                                            target_row = st.session_state.data[st.session_state.data['発言番号'].astype(str) == tag['target']].iloc[0]
+                                            tag_info += f" (関連発言: #{tag['target']}: {target_row['発言者']})"
+                                        non_text_tags.append(tag_info)
+                        
+                        if non_text_tags:
+                            st.markdown(f"""
+                            <div style="margin-left: 20px; margin-bottom: 10px; font-size: 0.9em; color: #666;">
+                                <strong>その他のタグ:</strong> {' | '.join(non_text_tags)}
+                            </div>
+                            """, unsafe_allow_html=True)
+                    
+                    # フェーズブロックの終了
+                    st.markdown("</div>", unsafe_allow_html=True)
                 
-                # タグタイプでフィルタリング
-                if filter_options:
-                    filtered_tags = {tag_type: tags for tag_type, tags in utterance_tags.items() if tag_type in filter_options}
+                # フェーズタグのない発言を表示
+                if no_phase_utterances:
+                    st.markdown("""
+                    <div style="margin-top: 20px; margin-bottom: 10px;">
+                        <h4>フェーズタグのない発言</h4>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    for row in no_phase_utterances:
+                        utterance_id = str(row['発言番号'])
+                        
+                        # この発言のタグを取得
+                        utterance_tags = st.session_state.tags.get(utterance_id, {})
+                        
+                        # タグタイプでフィルタリング
+                        if filter_options:
+                            filtered_tags = {tag_type: tags for tag_type, tags in utterance_tags.items() if tag_type in filter_options}
+                        else:
+                            filtered_tags = utterance_tags
+                        
+                        # マーカー付きテキストを生成
+                        marked_text = create_marked_text(row['発言内容'], filtered_tags)
+                        
+                        # 発言を表示
+                        st.markdown(f"""
+                        <div class="marked-utterance">
+                            <div class="utterance-header">
+                                #{row['発言番号']}: {row['発言者']}
+                            </div>
+                            <div class="utterance-content">
+                                {marked_text}
+                            </div>
+                            <div class="utterance-id-marker">ID: {row['発言番号']}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # 非テキスト選択タグを表示
+                        non_text_tags = []
+                        for tag_type, tags in filtered_tags.items():
+                            for tag in tags:
+                                if 'start' not in tag or 'end' not in tag:
+                                    tag_info = f"<{tag_type}> {st.session_state.tag_definitions[tag_type]['name']}: {tag['value']}"
+                                    if 'target' in tag:
+                                        target_row = st.session_state.data[st.session_state.data['発言番号'].astype(str) == tag['target']].iloc[0]
+                                        tag_info += f" (関連発言: #{tag['target']}: {target_row['発言者']})"
+                                    non_text_tags.append(tag_info)
+                        
+                        if non_text_tags:
+                            st.markdown(f"""
+                            <div style="margin-left: 20px; margin-bottom: 10px; font-size: 0.9em; color: #666;">
+                                <strong>その他のタグ:</strong> {' | '.join(non_text_tags)}
+                            </div>
+                            """, unsafe_allow_html=True)
+            
+            # 関係矢印表示（関係矢印表示モードまたはフェーズ＋関係表示モード）
+            if display_mode == "関係矢印表示" or display_mode == "フェーズ＋関係表示":
+                # 関係タグの情報を抽出
+                relation_info = extract_relation_info(st.session_state.tags, st.session_state.data)
+                
+                # フィルタリング
+                filtered_relations = []
+                for relation in relation_info:
+                    source_id = int(relation['source_id'])
+                    target_id = int(relation['target_id'])
+                    
+                    # 発言番号の範囲でフィルタリング
+                    if (utterance_range[0] <= source_id <= utterance_range[1] and 
+                        utterance_range[0] <= target_id <= utterance_range[1]):
+                        
+                        # 発言者でフィルタリング
+                        if not selected_speakers or (relation['source_speaker'] in selected_speakers and 
+                                                   relation['target_speaker'] in selected_speakers):
+                            filtered_relations.append(relation)
+                
+                if filtered_relations:
+                    st.subheader("発言間の関係")
+                    
+                    # 関係矢印のPlotly図を作成
+                    relation_fig = create_relation_arrows_plot(filtered_relations, st.session_state.data)
+                    st.plotly_chart(relation_fig, use_container_width=True)
+                    
+                    # 関係タグの一覧を表示
+                    st.markdown("""
+                    <div style="margin-top: 20px; margin-bottom: 10px;">
+                        <h4>関係タグ一覧</h4>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    relation_data = []
+                    for relation in filtered_relations:
+                        source_row = st.session_state.data[st.session_state.data['発言番号'].astype(str) == relation['source_id']].iloc[0]
+                        target_row = st.session_state.data[st.session_state.data['発言番号'].astype(str) == relation['target_id']].iloc[0]
+                        
+                        relation_data.append({
+                            '関係タイプ': relation['value'],
+                            '発言元': f"#{relation['source_id']}: {source_row['発言者']}",
+                            '発言先': f"#{relation['target_id']}: {target_row['発言者']}",
+                            '発言元内容': source_row['発言内容'][:50] + ('...' if len(source_row['発言内容']) > 50 else ''),
+                            '発言先内容': target_row['発言内容'][:50] + ('...' if len(target_row['発言内容']) > 50 else '')
+                        })
+                    
+                    st.dataframe(pd.DataFrame(relation_data))
+                    
+                    # 関係矢印表示モードの場合は発言も表示
+                    if display_mode == "関係矢印表示":
+                        st.markdown("""
+                        <div style="margin-top: 20px; margin-bottom: 10px;">
+                            <h4>発言一覧</h4>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # 発言ごとにマーカー付きテキストを表示
+                        for _, row in filtered_df.iterrows():
+                            utterance_id = str(row['発言番号'])
+                            
+                            # この発言のタグを取得
+                            utterance_tags = st.session_state.tags.get(utterance_id, {})
+                            
+                            # タグタイプでフィルタリング
+                            if filter_options:
+                                filtered_tags = {tag_type: tags for tag_type, tags in utterance_tags.items() if tag_type in filter_options}
+                            else:
+                                filtered_tags = utterance_tags
+                            
+                            # マーカー付きテキストを生成
+                            marked_text = create_marked_text(row['発言内容'], filtered_tags)
+                            
+                            # 発言を表示
+                            st.markdown(f"""
+                            <div class="marked-utterance">
+                                <div class="utterance-header">
+                                    #{row['発言番号']}: {row['発言者']}
+                                </div>
+                                <div class="utterance-content">
+                                    {marked_text}
+                                </div>
+                                <div class="utterance-id-marker">ID: {row['発言番号']}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
                 else:
-                    filtered_tags = utterance_tags
+                    st.info("条件に一致する関係タグがありません。")
+    
+    with tab6:
+        st.subheader("Graphviz/SVG表示")
+        
+        # 表示方法の選択
+        viz_method = st.radio(
+            "表示方法",
+            ["Graphviz (DOT)", "SVG"]
+        )
+        
+        # フィルタリングオプション
+        filter_options_viz = st.multiselect(
+            "表示するタグタイプを選択（未選択の場合はすべて表示）",
+            options=list(st.session_state.tag_definitions.keys()),
+            format_func=lambda x: f"{st.session_state.tag_definitions[x]['name']} <{x}>"
+        )
+        
+        # 発言者でフィルタリング
+        speakers_viz = st.session_state.data['発言者'].unique().tolist()
+        selected_speakers_viz = st.multiselect(
+            "表示する発言者を選択（未選択の場合はすべて表示）",
+            options=speakers_viz,
+            key="speakers_viz"
+        )
+        
+        # 発言番号の範囲でフィルタリング
+        min_utterance_viz = int(st.session_state.data['発言番号'].min())
+        max_utterance_viz = int(st.session_state.data['発言番号'].max())
+        
+        utterance_range_viz = st.slider(
+            "表示する発言番号の範囲",
+            min_value=min_utterance_viz,
+            max_value=max_utterance_viz,
+            value=(min_utterance_viz, max_utterance_viz),
+            key="range_viz"
+        )
+        
+        # フィルタリングされた発言を取得
+        filtered_df_viz = st.session_state.data
+        
+        # 発言者でフィルタリング
+        if selected_speakers_viz:
+            filtered_df_viz = filtered_df_viz[filtered_df_viz['発言者'].isin(selected_speakers_viz)]
+        
+        # 発言番号の範囲でフィルタリング
+        filtered_df_viz = filtered_df_viz[(filtered_df_viz['発言番号'] >= utterance_range_viz[0]) & (filtered_df_viz['発言番号'] <= utterance_range_viz[1])]
+        
+        if viz_method == "Graphviz (DOT)":
+            st.subheader("Graphviz DOT形式での表示")
+            
+            # タグタイプの選択
+            selected_tag_type_viz = st.selectbox(
+                "表示するタグタイプを選択",
+                ['すべて'] + list(st.session_state.tag_definitions.keys()),
+                format_func=lambda x: "すべて" if x == 'すべて' else f"{st.session_state.tag_definitions[x]['name']} <{x}>",
+                key="tag_type_viz"
+            )
+            
+            # DOTファイルを生成
+            dot = create_dot_file(st.session_state.tags, filtered_df_viz, selected_tag_type_viz)
+            
+            # DOTファイルの内容を表示
+            st.text_area("DOTファイルの内容", dot.source, height=200)
+            
+            # DOTファイルのダウンロードリンク
+            st.markdown(get_dot_download_link(dot.source, "graph.dot", "DOTファイルをダウンロード"), unsafe_allow_html=True)
+            
+            # Graphvizでレンダリングした結果を表示
+            st.graphviz_chart(dot)
+            
+        else:  # SVG表示
+            st.subheader("SVG形式での表示")
+            
+            # SVG表示モードの選択
+            svg_mode = st.radio(
+                "SVG表示モード",
+                ["フェーズブロック＋関係矢印", "タグツリー"]
+            )
+            
+            if svg_mode == "フェーズブロック＋関係矢印":
+                # SVGを生成
+                svg_content = create_svg_visualization(filtered_df_viz, st.session_state.tags, filter_options_viz)
                 
-                # マーカー付きテキストを生成
-                marked_text = create_marked_text(row['発言内容'], filtered_tags)
+                # SVGのダウンロードリンク
+                st.markdown(get_svg_download_link(svg_content, "visualization.svg", "SVGファイルをダウンロード"), unsafe_allow_html=True)
                 
-                # 発言を表示
+                # SVGを表示
                 st.markdown(f"""
-                <div class="marked-utterance">
-                    <div class="utterance-header">
-                        #{row['発言番号']}: {row['発言者']}
-                    </div>
-                    <div class="utterance-content">
-                        {marked_text}
-                    </div>
+                <div class="svg-container">
+                    {svg_content}
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # 非テキスト選択タグ（関係タグなど）を表示
-                non_text_tags = []
-                for tag_type, tags in filtered_tags.items():
-                    for tag in tags:
-                        if 'start' not in tag or 'end' not in tag:
-                            tag_info = f"<{tag_type}> {st.session_state.tag_definitions[tag_type]['name']}: {tag['value']}"
-                            if 'target' in tag:
-                                target_row = st.session_state.data[st.session_state.data['発言番号'].astype(str) == tag['target']].iloc[0]
-                                tag_info += f" (関連発言: #{tag['target']}: {target_row['発言者']})"
-                            non_text_tags.append(tag_info)
+            else:  # タグツリー
+                # タグタイプの選択
+                selected_tag_type_svg = st.selectbox(
+                    "表示するタグタイプを選択",
+                    ['すべて'] + list(st.session_state.tag_definitions.keys()),
+                    format_func=lambda x: "すべて" if x == 'すべて' else f"{st.session_state.tag_definitions[x]['name']} <{x}>",
+                    key="tag_type_svg"
+                )
                 
-                if non_text_tags:
+                # ツリーデータを作成
+                tree_data_svg = create_tree_data(st.session_state.tags, filtered_df_viz, selected_tag_type_svg)
+                
+                # SVGでツリーを描画（簡易版）
+                svg_width = 1000
+                svg_height = 800
+                
+                svg = f'<svg width="{svg_width}" height="{svg_height}" xmlns="http://www.w3.org/2000/svg">\n'
+                
+                # スタイル定義
+                svg += '''
+                <defs>
+                    <style>
+                        .node { fill: white; stroke: #333; stroke-width: 1; }
+                        .node-text { font-family: sans-serif; font-size: 12px; }
+                        .edge { stroke: #999; stroke-width: 1; }
+                    </style>
+                </defs>
+                '''
+                
+                # ノードとエッジの描画（簡易的な実装）
+                nodes = []
+                edges = []
+                
+                def process_node_svg(node, parent_id=None, level=0, x=500, y=50):
+                    node_id = len(nodes)
+                    
+                    # ノードの色を決定
+                    if level == 0:
+                        color = '#999'
+                    elif level == 1:
+                        color = '#69b3a2'
+                    elif level == 2:
+                        color = '#3498db'
+                    else:
+                        color = '#f39c12'
+                    
+                    # ノードを追加
+                    nodes.append({
+                        'id': node_id,
+                        'name': node['name'],
+                        'x': x,
+                        'y': y,
+                        'color': color,
+                        'level': level
+                    })
+                    
+                    # エッジを追加
+                    if parent_id is not None:
+                        edges.append({
+                            'from': parent_id,
+                            'to': node_id
+                        })
+                    
+                    # 子ノードを処理
+                    if 'children' in node and node['children']:
+                        child_count = len(node['children'])
+                        child_width = 800 / (child_count + 1)
+                        
+                        for i, child in enumerate(node['children']):
+                            child_x = 100 + (i + 1) * child_width
+                            child_y = y + 100
+                            process_node_svg(child, node_id, level + 1, child_x, child_y)
+                
+                # ルートノードから処理開始
+                if tree_data_svg['children']:
+                    process_node_svg(tree_data_svg)
+                    
+                    # エッジを描画
+                    for edge in edges:
+                        from_node = nodes[edge['from']]
+                        to_node = nodes[edge['to']]
+                        svg += f'<line x1="{from_node["x"]}" y1="{from_node["y"]}" x2="{to_node["x"]}" y2="{to_node["y"]}" class="edge" />\n'
+                    
+                    # ノードを描画
+                    for node in nodes:
+                        radius = 15 if node['level'] == 0 else 12 if node['level'] == 1 else 10
+                        svg += f'<circle cx="{node["x"]}" cy="{node["y"]}" r="{radius}" class="node" fill="{node["color"]}" />\n'
+                        svg += f'<text x="{node["x"]}" y="{node["y"]}" dy="4" text-anchor="middle" class="node-text">{node["name"][:10]}</text>\n'
+                    
+                    svg += '</svg>'
+                    
+                    # SVGのダウンロードリンク
+                    st.markdown(get_svg_download_link(svg, "tree.svg", "SVGファイルをダウンロード"), unsafe_allow_html=True)
+                    
+                    # SVGを表示
                     st.markdown(f"""
-                    <div style="margin-left: 20px; margin-bottom: 10px; font-size: 0.9em; color: #666;">
-                        <strong>その他のタグ:</strong> {' | '.join(non_text_tags)}
+                    <div class="svg-container">
+                        {svg}
                     </div>
                     """, unsafe_allow_html=True)
+                    
+                    st.info("注: このSVGツリー表示は簡易版です。より詳細なツリー表示は「タグツリー」タブをご利用ください。")
+                else:
+                    st.info("表示するタグデータがありません。")
 else:
     st.info("CSVファイルをアップロードしてください。")
 
 # フッター
 st.markdown("---")
-st.markdown("LAT35 on the web: mark-up system - Text Encoding Initiative (TEI) inspired markup system for Lesson Analysis")
+st.markdown("授業研究TEIマークアップシステム - Text Encoding Initiative (TEI) inspired markup system for classroom research")
