@@ -1438,7 +1438,7 @@ if not st.session_state.data.empty:
             
             # エッジラベルの描画
             edge_labels = {(source, target): data['label'] for source, target, data in G.edges(data=True)}
-            nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_family='Hiragino Kaku Gothic Pro'))
+            nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_family='Hiragino Kaku Gothic Pro')
             
             plt.axis('off')
             st.pyplot(plt)
