@@ -1883,14 +1883,16 @@ if not st.session_state.data.empty:
         # 表示方法の選択
         viz_method = st.radio(
             "表示方法",
-            ["Graphviz (DOT)", "SVG"]
+            ["Graphviz (DOT)", "SVG"],
+            key="viz_method"
         )
         
         # フィルタリングオプション
         filter_options_viz = st.multiselect(
             "表示するタグタイプを選択（未選択の場合はすべて表示）",
             options=list(st.session_state.tag_definitions.keys()),
-            format_func=lambda x: f"{st.session_state.tag_definitions[x]['name']} <{x}>"
+            format_func=lambda x: f"{st.session_state.tag_definitions[x]['name']} <{x}>",
+            key="filter_options_viz"
         )
         
         # 発言者でフィルタリング
@@ -1952,7 +1954,8 @@ if not st.session_state.data.empty:
             # SVG表示モードの選択
             svg_mode = st.radio(
                 "SVG表示モード",
-                ["フェーズブロック＋関係矢印", "タグツリー"]
+                ["フェーズブロック＋関係矢印", "タグツリー"],
+                key="svg_mode"
             )
             
             if svg_mode == "フェーズブロック＋関係矢印":
