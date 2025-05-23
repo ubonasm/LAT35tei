@@ -406,31 +406,35 @@ def create_tree_data(tags, data, selected_tag_type='すべて'):
         # このタグタイプが使われている発言を集める
         for utterance_id, utterance_tags in tags.items():
             if tag_type in utterance_tags:
-                utterance_row = data[data['発言番号'].astype(str) == utterance_id].iloc[0]
-                
-                # この発言のこのタグタイプのタグを追加
-                for tag in utterance_tags[tag_type]:
-                    tag_value = tag['value']
+                utterance_row = data[data['発言番号'].astype(str) == utterance_id]
+                if not utterance_row.empty:
+                    utterance_row = utterance_row.iloc[0]
                     
-                    # テキスト選択がある場合
-                    if 'start' in tag and 'end' in tag:
-                        selected_text = utterance_row['発言内容'][tag['start']:tag['end']]
-                        display_value = f"{tag_value} (\"{selected_text}\")"
-                    else:
-                        display_value = tag_value
-                    
-                    # 関係タグの場合
-                    if 'target' in tag:
-                        target_id = tag['target']
-                        target_row = data[data['発言番号'].astype(str) == target_id].iloc[0]
-                        display_value += f" (関連発言: #{target_id})"
-                    
-                    # タグ値ごとに発言をグループ化
-                    tag_values[display_value].append({
-                        'utterance_id': utterance_id,
-                        'speaker': utterance_row['発言者'],
-                        'content': utterance_row['発言内容']
-                    })
+                    # この発言のこのタグタイプのタグを追加
+                    for tag in utterance_tags[tag_type]:
+                        tag_value = tag['value']
+                        
+                        # テキスト選択がある場合
+                        if 'start' in tag and 'end' in tag:
+                            selected_text = utterance_row['発言内容'][tag['start']:tag['end']]
+                            display_value = f"{tag_value} (\"{selected_text}\")"
+                        else:
+                            display_value = tag_value
+                        
+                        # 関係タグの場合
+                        if 'target' in tag:
+                            target_id = tag['target']
+                            target_row = data[data['発言番号'].astype(str) == target_id]
+                            if not target_row.empty:
+                                target_row = target_row.iloc[0]
+                                display_value += f" (関連発言: #{target_id})"
+                        
+                        # タグ値ごとに発言をグループ化
+                        tag_values[display_value].append({
+                            'utterance_id': utterance_id,
+                            'speaker': utterance_row['発言者'],
+                            'content': utterance_row['発言内容']
+                        })
         
         # タグ値ごとのノードを作成
         for tag_value, utterances in tag_values.items():
@@ -847,41 +851,45 @@ def create_dot_file(tags, data, selected_tag_type='すべて'):
             # このタグタイプが使われている発言を集める
             for utterance_id, utterance_tags in tags.items():
                 if tag_type in utterance_tags:
-                    utterance_row = data[data['発言番号'].astype(str) == utterance_id].iloc[0]
-                    
-                    # この発言のこのタグタイプのタグを追加
-                    for tag in utterance_tags[tag_type]:
-                        tag_value = tag['value']
+                    utterance_row = data[data['発言番号'].astype(str) == utterance_id]
+                    if not utterance_row.empty:
+                        utterance_row = utterance_row.iloc[0]
                         
-                        # タグ値のノードを作成（存在しない場合）
-                        tag_node_id = f"{tag_type}_{tag_value.replace(' ', '_')}"
-                        c.node(tag_node_id, tag_value, fillcolor=tag_info['color'], fontcolor='black')
-                        
-                        # 発言ノードを作成
-                        utterance_node_id = f"utterance_{utterance_id}"
-                        utterance_label = f"#{utterance_id}: {utterance_row['発言者']}\n{utterance_row['発言内容'][:30]}..."
-                        dot.node(utterance_node_id, utterance_label, fillcolor='lightblue')
-                        
-                        # タグ値から発言へのエッジを作成
-                        if 'start' in tag and 'end' in tag:
-                            # テキスト選択タグの場合
-                            selected_text = utterance_row['発言内容'][tag['start']:tag['end']]
-                            dot.edge(tag_node_id, utterance_node_id, label=f'"{selected_text}"', color=tag_color)
-                        elif 'target' in tag:
-                            # 関係タグの場合
-                            target_id = tag['target']
-                            target_node_id = f"utterance_{target_id}"
+                        # この発言のこのタグタイプのタグを追加
+                        for tag in utterance_tags[tag_type]:
+                            tag_value = tag['value']
                             
-                            # ターゲット発言ノードを作成
-                            target_row = data[data['発言番号'].astype(str) == target_id].iloc[0]
-                            target_label = f"#{target_id}: {target_row['発言者']}\n{target_row['発言内容'][:30]}..."
-                            dot.node(target_node_id, target_label, fillcolor='lightblue')
+                            # タグ値のノードを作成（存在しない場合）
+                            tag_node_id = f"{tag_type}_{tag_value.replace(' ', '_')}"
+                            c.node(tag_node_id, tag_value, fillcolor=tag_info['color'], fontcolor='black')
                             
-                            # 関係を表すエッジを作成
-                            dot.edge(utterance_node_id, target_node_id, label=tag_value, color=tag_color)
-                        else:
-                            # その他のタグの場合
-                            dot.edge(tag_node_id, utterance_node_id, color=tag_color)
+                            # 発言ノードを作成
+                            utterance_node_id = f"utterance_{utterance_id}"
+                            utterance_label = f"#{utterance_id}: {utterance_row['発言者']}\n{utterance_row['発言内容'][:30]}..."
+                            dot.node(utterance_node_id, utterance_label, fillcolor='lightblue')
+                            
+                            # タグ値から発言へのエッジを作成
+                            if 'start' in tag and 'end' in tag:
+                                # テキスト選択タグの場合
+                                selected_text = utterance_row['発言内容'][tag['start']:tag['end']]
+                                dot.edge(tag_node_id, utterance_node_id, label=f'"{selected_text}"', color=tag_color)
+                            elif 'target' in tag:
+                                # 関係タグの場合
+                                target_id = tag['target']
+                                target_node_id = f"utterance_{target_id}"
+                                
+                                # ターゲット発言ノードを作成
+                                target_row = data[data['発言番号'].astype(str) == target_id]
+                                if not target_row.empty:
+                                    target_row = target_row.iloc[0]
+                                    target_label = f"#{target_id}: {target_row['発言者']}\n{target_row['発言内容'][:30]}..."
+                                    dot.node(target_node_id, target_label, fillcolor='lightblue')
+                                    
+                                    # 関係を表すエッジを作成
+                                    dot.edge(utterance_node_id, target_node_id, label=tag_value, color=tag_color)
+                            else:
+                                # その他のタグの場合
+                                dot.edge(tag_node_id, utterance_node_id, color=tag_color)
     
     return dot
 
@@ -959,10 +967,10 @@ def create_svg_visualization(filtered_df, tags, filter_options=None):
             svg += f'<rect x="50" y="{y_pos}" width="800" height="{box_height}" class="utterance-box" />\n'
             
             # 発言ヘッダーを描画
-            svg += f'<text x="60" y="{y_pos + 20}" class="utterance-text utterance-header">#{row["発言番号"]}: {html.escape(row["発言者"])}</text>\n'
+            svg += f'<text x="60" y="{y_pos + 20}" class="utterance-text utterance-header">#{row["発言番号"]}: {html.escape(str(row["発言者"]))}</text>\n'
             
             # 発言内容を描画
-            content_text = html.escape(row['発言内容'][:100]) + ('...' if len(row['発言内容']) > 100 else '')
+            content_text = html.escape(str(row['発言内容'])[:100]) + ('...' if len(str(row['発言内容'])) > 100 else '')
             svg += f'<text x="60" y="{y_pos + 40}" class="utterance-text">{content_text}</text>\n'
             
             # 発言IDマーカーを描画
@@ -1030,10 +1038,10 @@ def create_svg_visualization(filtered_df, tags, filter_options=None):
             svg += f'<rect x="50" y="{y_pos}" width="800" height="{box_height}" class="utterance-box" />\n'
             
             # 発言ヘッダーを描画
-            svg += f'<text x="60" y="{y_pos + 20}" class="utterance-text utterance-header">#{row["発言番号"]}: {html.escape(row["発言者"])}</text>\n'
+            svg += f'<text x="60" y="{y_pos + 20}" class="utterance-text utterance-header">#{row["発言番号"]}: {html.escape(str(row["発言者"]))}</text>\n'
             
             # 発言内容を描画
-            content_text = html.escape(row['発言内容'][:100]) + ('...' if len(row['発言内容']) > 100 else '')
+            content_text = html.escape(str(row['発言内容'])[:100]) + ('...' if len(str(row['発言内容'])) > 100 else '')
             svg += f'<text x="60" y="{y_pos + 40}" class="utterance-text">{content_text}</text>\n'
             
             # 発言IDマーカーを描画
@@ -1086,6 +1094,95 @@ def create_svg_visualization(filtered_df, tags, filter_options=None):
             label_x = control_x
             label_y = control_y - 10
             svg += f'<text x="{label_x}" y="{label_y}" class="relation-label" fill="{relation_color}">{html.escape(relation["value"])}</text>\n'
+    
+    # SVGのフッター
+    svg += '</svg>'
+    
+    return svg
+
+# SVGでタグツリーを描画する関数
+def create_svg_tree(tree_data):
+    # SVGのヘッダー
+    svg_width = 1000
+    svg_height = 800
+    svg = f'<svg width="{svg_width}" height="{svg_height}" xmlns="http://www.w3.org/2000/svg">\n'
+    
+    # スタイル定義
+    svg += '''
+    <defs>
+        <style>
+            .node { fill: white; stroke: #333; stroke-width: 1; }
+            .node-text { font-family: sans-serif; font-size: 12px; }
+            .edge { stroke: #999; stroke-width: 1; }
+        </style>
+    </defs>
+    '''
+    
+    # ノードとエッジの描画（簡易的な実装）
+    nodes = []
+    edges = []
+    
+    def process_node_svg(node, parent_id=None, level=0, x=500, y=50):
+        node_id = len(nodes)
+        
+        # ノードの色を決定
+        if level == 0:
+            color = '#999'
+        elif level == 1:
+            color = '#69b3a2'
+        elif level == 2:
+            color = '#3498db'
+        else:
+            color = '#f39c12'
+        
+        # ノードを追加
+        nodes.append({
+            'id': node_id,
+            'name': node['name'],
+            'x': x,
+            'y': y,
+            'color': color,
+            'level': level
+        })
+        
+        # エッジを追加
+        if parent_id is not None:
+            edges.append({
+                'from': parent_id,
+                'to': node_id
+            })
+        
+        # 子ノードを処理
+        if 'children' in node and node['children']:
+            child_count = len(node['children'])
+            child_width = 800 / (child_count + 1)
+            
+            for i, child in enumerate(node['children']):
+                child_x = 100 + (i + 1) * child_width
+                child_y = y + 100
+                process_node_svg(child, node_id, level + 1, child_x, child_y)
+    
+    # ルートノードから処理開始
+    if tree_data['children']:
+        process_node_svg(tree_data)
+        
+        # エッジを描画
+        for edge in edges:
+            from_node = nodes[edge['from']]
+            to_node = nodes[edge['to']]
+            svg += f'<line x1="{from_node["x"]}" y1="{from_node["y"]}" x2="{to_node["x"]}" y2="{to_node["y"]}" class="edge" />\n'
+        
+        # ノードを描画
+        for node in nodes:
+            radius = 15 if node['level'] == 0 else 12 if node['level'] == 1 else 10
+            svg += f'<circle cx="{node["x"]}" cy="{node["y"]}" r="{radius}" class="node" fill="{node["color"]}" />\n'
+            
+            # ノード名を表示（短くする）
+            display_name = node["name"]
+            if len(display_name) > 20:
+                display_name = display_name[:17] + "..."
+            
+            svg += f'<text x="{node["x"]}" y="{node["y"]}" dy="4" text-anchor="middle" class="node-text">{html.escape(display_name)}</text>\n'
     
     # SVGのフッター
     svg += '</svg>'
@@ -1537,23 +1634,27 @@ if not st.session_state.data.empty:
             
             for utterance_id, tags in st.session_state.tags.items():
                 if selected_tag_type in tags:
-                    utterance_row = st.session_state.data[st.session_state.data['発言番号'].astype(str) == utterance_id].iloc[0]
-                    
-                    for tag in tags[selected_tag_type]:
-                        tag_info = {
-                            '発言番号': utterance_id,
-                            '発言者': utterance_row['発言者'],
-                            'タグ値': tag['value']
-                        }
+                    utterance_row = st.session_state.data[st.session_state.data['発言番号'].astype(str) == utterance_id]
+                    if not utterance_row.empty:
+                        utterance_row = utterance_row.iloc[0]
                         
-                        if 'start' in tag and 'end' in tag:
-                            tag_info['選択テキスト'] = utterance_row['発言内容'][tag['start']:tag['end']]
-                        
-                        if 'target' in tag:
-                            target_row = st.session_state.data[st.session_state.data['発言番号'].astype(str) == tag['target']].iloc[0]
-                            tag_info['関連発言'] = f"#{tag['target']}: {target_row['発言者']} - {target_row['発言内容'][:30]}..."
-                        
-                        filtered_data.append(tag_info)
+                        for tag in tags[selected_tag_type]:
+                            tag_info = {
+                                '発言番号': utterance_id,
+                                '発言者': utterance_row['発言者'],
+                                'タグ値': tag['value']
+                            }
+                            
+                            if 'start' in tag and 'end' in tag:
+                                tag_info['選択テキスト'] = utterance_row['発言内容'][tag['start']:tag['end']]
+                            
+                            if 'target' in tag:
+                                target_row = st.session_state.data[st.session_state.data['発言番号'].astype(str) == tag['target']]
+                                if not target_row.empty:
+                                    target_row = target_row.iloc[0]
+                                    tag_info['関連発言'] = f"#{tag['target']}: {target_row['発言者']} - {target_row['発言内容'][:30]}..."
+                            
+                            filtered_data.append(tag_info)
             
             if filtered_data:
                 st.dataframe(pd.DataFrame(filtered_data))
@@ -1966,11 +2067,7 @@ if not st.session_state.data.empty:
                 st.markdown(get_svg_download_link(svg_content, "visualization.svg", "SVGファイルをダウンロード"), unsafe_allow_html=True)
                 
                 # SVGを表示
-                st.markdown(f"""
-                <div class="svg-container">
-                    {svg_content}
-                </div>
-                """, unsafe_allow_html=True)
+                st.components.v1.html(svg_content, height=800, scrolling=True)
                 
             else:  # タグツリー
                 # タグタイプの選択
@@ -1984,94 +2081,15 @@ if not st.session_state.data.empty:
                 # ツリーデータを作成
                 tree_data_svg = create_tree_data(st.session_state.tags, filtered_df_viz, selected_tag_type_svg)
                 
-                # SVGでツリーを描画（簡易版）
-                svg_width = 1000
-                svg_height = 800
-                
-                svg = f'<svg width="{svg_width}" height="{svg_height}" xmlns="http://www.w3.org/2000/svg">\n'
-                
-                # スタイル定義
-                svg += '''
-                <defs>
-                    <style>
-                        .node { fill: white; stroke: #333; stroke-width: 1; }
-                        .node-text { font-family: sans-serif; font-size: 12px; }
-                        .edge { stroke: #999; stroke-width: 1; }
-                    </style>
-                </defs>
-                '''
-                
-                # ノードとエッジの描画（簡易的な実装）
-                nodes = []
-                edges = []
-                
-                def process_node_svg(node, parent_id=None, level=0, x=500, y=50):
-                    node_id = len(nodes)
-                    
-                    # ノードの色を決定
-                    if level == 0:
-                        color = '#999'
-                    elif level == 1:
-                        color = '#69b3a2'
-                    elif level == 2:
-                        color = '#3498db'
-                    else:
-                        color = '#f39c12'
-                    
-                    # ノードを追加
-                    nodes.append({
-                        'id': node_id,
-                        'name': node['name'],
-                        'x': x,
-                        'y': y,
-                        'color': color,
-                        'level': level
-                    })
-                    
-                    # エッジを追加
-                    if parent_id is not None:
-                        edges.append({
-                            'from': parent_id,
-                            'to': node_id
-                        })
-                    
-                    # 子ノードを処理
-                    if 'children' in node and node['children']:
-                        child_count = len(node['children'])
-                        child_width = 800 / (child_count + 1)
-                        
-                        for i, child in enumerate(node['children']):
-                            child_x = 100 + (i + 1) * child_width
-                            child_y = y + 100
-                            process_node_svg(child, node_id, level + 1, child_x, child_y)
-                
-                # ルートノードから処理開始
+                # SVGでツリーを描画
                 if tree_data_svg['children']:
-                    process_node_svg(tree_data_svg)
-                    
-                    # エッジを描画
-                    for edge in edges:
-                        from_node = nodes[edge['from']]
-                        to_node = nodes[edge['to']]
-                        svg += f'<line x1="{from_node["x"]}" y1="{from_node["y"]}" x2="{to_node["x"]}" y2="{to_node["y"]}" class="edge" />\n'
-                    
-                    # ノードを描画
-                    for node in nodes:
-                        radius = 15 if node['level'] == 0 else 12 if node['level'] == 1 else 10
-                        svg += f'<circle cx="{node["x"]}" cy="{node["y"]}" r="{radius}" class="node" fill="{node["color"]}" />\n'
-                        svg += f'<text x="{node["x"]}" y="{node["y"]}" dy="4" text-anchor="middle" class="node-text">{node["name"][:10]}</text>\n'
-                    
-                    svg += '</svg>'
+                    svg_content = create_svg_tree(tree_data_svg)
                     
                     # SVGのダウンロードリンク
-                    st.markdown(get_svg_download_link(svg, "tree.svg", "SVGファイルをダウンロード"), unsafe_allow_html=True)
+                    st.markdown(get_svg_download_link(svg_content, "tree.svg", "SVGファイルをダウンロード"), unsafe_allow_html=True)
                     
                     # SVGを表示
-                    st.markdown(f"""
-                    <div class="svg-container">
-                        {svg}
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.components.v1.html(svg_content, height=800, scrolling=True)
                     
                     st.info("注: このSVGツリー表示は簡易版です。より詳細なツリー表示は「タグツリー」タブをご利用ください。")
                 else:
