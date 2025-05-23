@@ -21,7 +21,7 @@ import os
 import math
 
 # アプリケーションのタイトルとスタイル設定
-st.set_page_config(page_title="授業研究TEIマークアップシステム", layout="wide")
+st.set_page_config(page_title="LAT35 on the web: mark-up system", layout="wide")
 
 # CSSスタイルの追加
 st.markdown("""
@@ -221,15 +221,15 @@ if 'current_utterance' not in st.session_state:
 if 'tag_definitions' not in st.session_state:
     # タグの定義と説明
     st.session_state.tag_definitions = {
-        'code': {'name': 'コード・概念', 'color': '#FFD700', 'description': '発言に対する概念やコードを付与します'},
-        'relation': {'name': '関係性', 'color': '#FF6347', 'description': '他の発言との関係を示します'},
-        'act': {'name': '発話行為', 'color': '#98FB98', 'description': '発話行為の種類を分類します'},
-        'who': {'name': '発言者属性', 'color': '#87CEFA', 'description': '発言者の役割や属性を記録します'},
+        'code': {'name': 'コード・概念', 'color': '#FFD700', 'description': '発言に対する概念やコードを付与します　例）気づき、止められない理由、伝えたい想いとの逆行'},
+        'relation': {'name': '関係性', 'color': '#FF6347', 'description': '他の発言との関係を示します　例）反論、付け足し、展開'},
+        'act': {'name': '発話行為', 'color': '#98FB98', 'description': '発話行為の種類を分類します　例）問いかけ、説明、指示'},
+        'who': {'name': '発言者属性', 'color': '#87CEFA', 'description': '発言者の役割や属性を記録します　例）教師、児童'},
         'time': {'name': '時間情報', 'color': '#DDA0DD', 'description': 'タイムスタンプや経過時間を記録します'},
-        'note': {'name': '注記', 'color': '#F0E68C', 'description': '分析者による注記を追加します'},
-        'phase': {'name': '授業フェーズ', 'color': '#FFA07A', 'description': '授業のフェーズや段階を示します'},
-        'meta': {'name': 'メタ情報', 'color': '#B0C4DE', 'description': '発言単位のメタ情報を記録します'},
-        'group': {'name': 'グループ', 'color': '#D8BFD8', 'description': '発言のまとまり、活動、分節、話題を示します'}
+        'note': {'name': '注記', 'color': '#F0E68C', 'description': '分析者によるメモや注記を追加します'},
+        'phase': {'name': '授業フェーズ', 'color': '#FFA07A', 'description': '授業のフェーズや段階を示します　例）導入、第2分節、グループ活動'},
+        'meta': {'name': 'メタ情報', 'color': '#B0C4DE', 'description': '発言単位のメタ情報・非言語情報を記録します　例）興奮、泣きながら、かなりの間を空けて'},
+        # 'group': {'name': 'グループ', 'color': '#D8BFD8', 'description': '発言のまとまり、活動、分節、話題を示します'}
     }
 
 # タグ付けされたテキストをXML形式に変換する関数
@@ -1191,7 +1191,7 @@ def create_svg_tree(tree_data):
 
 # サイドバー - ファイルアップロードと基本機能
 with st.sidebar:
-    st.title("授業研究TEIマークアップシステム")
+    st.title("LAT35 on the web")
     
     # ファイルアップロード（CSVとJSON）
     st.header("1. データのアップロード")
@@ -1264,7 +1264,7 @@ with st.sidebar:
         st.markdown("</div>", unsafe_allow_html=True)
 
 # メイン画面
-st.title("授業記録マークアップシステム")
+st.title("LAT35 on the web: mark-up system")
 
 # データが空でない場合のみ表示
 if not st.session_state.data.empty:
@@ -1423,20 +1423,22 @@ if not st.session_state.data.empty:
             
             # グラフの描画
             plt.figure(figsize=(12, 8))
+            plt.rcParams['font.sans-serif'] = ['Hiragino Maru Gothic Pro', 'Yu Gothic', 'Meirio', 'Takao', 'IPAexGothic', 'IPAPGothic', 'VL PGothic', 'Noto Sans CJK JP']
+            
             pos = nx.spring_layout(G, seed=42)
             
             # ノードの描画
             nx.draw_networkx_nodes(G, pos, node_size=700, node_color='skyblue')
             
             # ノードラベルの描画
-            nx.draw_networkx_labels(G, pos, labels=nx.get_node_attributes(G, 'label'))
+            nx.draw_networkx_labels(G, pos, labels=nx.get_node_attributes(G, 'label'), font_family='Hiragino Kaku Gothic Pro'))
             
             # エッジの描画
             nx.draw_networkx_edges(G, pos, arrowsize=20, width=2)
             
             # エッジラベルの描画
             edge_labels = {(source, target): data['label'] for source, target, data in G.edges(data=True)}
-            nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
+            nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_family='Hiragino Kaku Gothic Pro'))
             
             plt.axis('off')
             st.pyplot(plt)
@@ -2099,4 +2101,4 @@ else:
 
 # フッター
 st.markdown("---")
-st.markdown("授業研究TEIマークアップシステム - Text Encoding Initiative (TEI) inspired markup system for classroom research")
+st.markdown("LAT35 on the web: mark-up system - Text Encoding Initiative (TEI) inspired markup system for classroom research")
