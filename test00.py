@@ -1431,7 +1431,7 @@ if not st.session_state.data.empty:
             nx.draw_networkx_nodes(G, pos, node_size=700, node_color='skyblue')
             
             # ノードラベルの描画
-            nx.draw_networkx_labels(G, pos, labels=nx.get_node_attributes(G, 'label'), font_family='Hiragino Kaku Gothic Pro'))
+            nx.draw_networkx_labels(G, pos, labels=nx.get_node_attributes(G, 'label'), font_family='Hiragino Kaku Gothic Pro')
             
             # エッジの描画
             nx.draw_networkx_edges(G, pos, arrowsize=20, width=2)
