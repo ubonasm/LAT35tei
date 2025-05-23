@@ -1428,7 +1428,7 @@ if not st.session_state.data.empty:
             pos = nx.spring_layout(G, seed=42)
             
             # ノードの描画
-            nx.draw_networkx_nodes(G, pos, node_size=700, node_color='skyblue')
+            nx.draw_networkx_nodes(G, pos, node_size=300, node_color='skyblue')
             
             # ノードラベルの描画
             nx.draw_networkx_labels(G, pos, labels=nx.get_node_attributes(G, 'label'), font_family='IPAPGothic')
