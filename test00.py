@@ -1428,17 +1428,17 @@ if not st.session_state.data.empty:
             pos = nx.spring_layout(G, seed=42)
             
             # ノードの描画
-            nx.draw_networkx_nodes(G, pos, node_size=300, node_color='skyblue')
+            nx.draw_networkx_nodes(G, pos, node_size=200, node_color='skyblue')
             
             # ノードラベルの描画
-            nx.draw_networkx_labels(G, pos, labels=nx.get_node_attributes(G, 'label'), font_family='IPAPGothic')
+            nx.draw_networkx_labels(G, pos, labels=nx.get_node_attributes(G, 'label'), font_family=IPAexGothic)
             
             # エッジの描画
             nx.draw_networkx_edges(G, pos, arrowsize=20, width=2)
             
             # エッジラベルの描画
             edge_labels = {(source, target): data['label'] for source, target, data in G.edges(data=True)}
-            nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_family='IPAPGothic')
+            nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_family=IPAexGothic)
             
             plt.axis('off')
             st.pyplot(plt)
